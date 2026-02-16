@@ -5,37 +5,40 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TransactionResource\Pages;
 use App\Models\Transaction;
 use App\Models\User;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components;
+use Filament\Schemas\Components\Utilities\Get;
 
 class TransactionResource extends Resource
 {
     protected static ?string $model = Transaction::class;
-    protected static ?string $navigationIcon = 'heroicon-o-arrow-path';
-    protected static ?string $navigationGroup = 'Financial Operations';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrow-path';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 1;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('Transaction Details')
+                Components\Section::make('Transaction Details')
                     ->schema([
                         Forms\Components\TextInput::make('transaction_id')
                             ->default(fn() => Transaction::generateTransactionId())
                             ->disabled()
                             ->dehydrated()
                             ->required(),
-                        
+
                         Forms\Components\DateTimePicker::make('transaction_date')
                             ->default(now())
                             ->required(),
-                        
+
                         Forms\Components\Select::make('type')
                             ->options([
                                 'external_import' => 'External Bank Import',
@@ -47,38 +50,38 @@ class TransactionResource extends Resource
                             ])
                             ->required()
                             ->reactive(),
-                        
+
                         Forms\Components\TextInput::make('from_account')
                             ->required()
                             ->maxLength(255),
-                        
+
                         Forms\Components\TextInput::make('to_account')
                             ->required()
                             ->maxLength(255),
-                        
+
                         Forms\Components\TextInput::make('amount')
                             ->numeric()
                             ->prefix('$')
                             ->required()
                             ->step(0.01)
                             ->minValue(0.01),
-                        
+
                         Forms\Components\Select::make('user_id')
                             ->label('User')
                             ->relationship('user', 'name')
                             ->searchable()
                             ->preload()
-                            ->required(fn(Forms\Get $get) => in_array($get('type'), [
+                            ->required(fn(Get $get) => in_array($get('type'), [
                                 'master_to_user_bank',
                                 'contribution',
                                 'loan_repayment',
                                 'loan_disbursement'
                             ])),
-                        
+
                         Forms\Components\TextInput::make('reference')
                             ->maxLength(255)
                             ->helperText('External Ref ID, Loan ID, etc.'),
-                        
+
                         Forms\Components\Select::make('status')
                             ->options([
                                 'pending' => 'Pending',
@@ -88,7 +91,7 @@ class TransactionResource extends Resource
                             ])
                             ->default('pending')
                             ->required(),
-                        
+
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
                             ->columnSpanFull(),
@@ -105,12 +108,13 @@ class TransactionResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->copyable(),
-                
+
                 Tables\Columns\TextColumn::make('transaction_date')
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
-                
-                Tables\Columns\BadgeColumn::make('type')
+
+                Tables\Columns\TextColumn::make('type')
+                    ->badge()
                     ->colors([
                         'primary' => 'external_import',
                         'success' => 'contribution',
@@ -120,15 +124,15 @@ class TransactionResource extends Resource
                         'secondary' => 'adjustment',
                     ])
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
-                
+
                 Tables\Columns\TextColumn::make('from_account')
                     ->limit(20)
                     ->tooltip(fn($record) => $record->from_account),
-                
+
                 Tables\Columns\TextColumn::make('to_account')
                     ->limit(20)
                     ->tooltip(fn($record) => $record->to_account),
-                
+
                 Tables\Columns\TextColumn::make('amount')
                     ->money('USD')
                     ->sortable()
@@ -136,20 +140,21 @@ class TransactionResource extends Resource
                         Tables\Columns\Summarizers\Sum::make()
                             ->money('USD'),
                     ]),
-                
+
                 Tables\Columns\TextColumn::make('user.name')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                
-                Tables\Columns\BadgeColumn::make('status')
+
+                Tables\Columns\TextColumn::make('status')
+                    ->badge()
                     ->colors([
                         'warning' => 'pending',
                         'success' => 'complete',
                         'danger' => 'failed',
                         'secondary' => 'reversed',
                     ]),
-                
+
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -167,7 +172,7 @@ class TransactionResource extends Resource
                         'adjustment' => 'Adjustment',
                     ])
                     ->multiple(),
-                
+
                 Tables\Filters\SelectFilter::make('status')
                     ->options([
                         'pending' => 'Pending',
@@ -176,14 +181,14 @@ class TransactionResource extends Resource
                         'reversed' => 'Reversed',
                     ])
                     ->multiple(),
-                
+
                 Tables\Filters\SelectFilter::make('user')
                     ->relationship('user', 'name')
                     ->searchable()
                     ->preload(),
-                
+
                 Tables\Filters\Filter::make('transaction_date')
-                    ->form([
+                    ->schema([
                         Forms\Components\DatePicker::make('from')
                             ->label('From Date'),
                         Forms\Components\DatePicker::make('to')
@@ -195,16 +200,16 @@ class TransactionResource extends Resource
                             ->when($data['to'], fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
                     }),
             ])
-            ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make()
+            ->recordActions([
+                Actions\ViewAction::make(),
+                Actions\EditAction::make()
                     ->visible(fn($record) => $record->status === 'pending'),
-                
-                Tables\Actions\Action::make('reverse')
+
+                Actions\Action::make('reverse')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->form([
+                    ->schema([
                         Forms\Components\Textarea::make('reason')
                             ->required()
                             ->label('Reversal Reason'),
@@ -214,26 +219,44 @@ class TransactionResource extends Resource
                     })
                     ->visible(fn($record) => $record->status === 'complete'),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    public static function infolist(Schema $schema): Schema
     {
-        return $infolist
+        return $schema
             ->schema([
-                Infolists\Components\Section::make('Transaction Information')
+                Components\Section::make('Transaction Information')
                     ->schema([
                         Infolists\Components\TextEntry::make('transaction_id')
                             ->copyable(),
                         Infolists\Components\TextEntry::make('transaction_date')
                             ->dateTime(),
-                        Infolists\Components\BadgeEntry::make('type')
+                        Infolists\Components\TextEntry::make('type')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'external_import' => 'primary',
+                                'contribution' => 'success',
+                                'loan_repayment' => 'warning',
+                                'loan_disbursement' => 'danger',
+                                'master_to_user_bank' => 'info',
+                                'adjustment' => 'secondary',
+                                default => 'secondary',
+                            })
                             ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
-                        Infolists\Components\BadgeEntry::make('status'),
+                        Infolists\Components\TextEntry::make('status')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'pending' => 'warning',
+                                'complete' => 'success',
+                                'failed' => 'danger',
+                                'reversed' => 'secondary',
+                                default => 'secondary',
+                            }),
                         Infolists\Components\TextEntry::make('from_account'),
                         Infolists\Components\TextEntry::make('to_account'),
                         Infolists\Components\TextEntry::make('amount')
@@ -241,8 +264,8 @@ class TransactionResource extends Resource
                         Infolists\Components\TextEntry::make('reference'),
                     ])
                     ->columns(2),
-                
-                Infolists\Components\Section::make('User Information')
+
+                Components\Section::make('User Information')
                     ->schema([
                         Infolists\Components\TextEntry::make('user.name')
                             ->label('User'),
@@ -251,8 +274,8 @@ class TransactionResource extends Resource
                     ])
                     ->columns(2)
                     ->visible(fn($record) => $record->user_id),
-                
-                Infolists\Components\Section::make('Additional Details')
+
+                Components\Section::make('Additional Details')
                     ->schema([
                         Infolists\Components\TextEntry::make('creator.name')
                             ->label('Created By'),

@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 
+/**
+ * @property float $total_paid
+ * @property float $outstanding_balance
+ * @property Carbon|null $next_payment_date
+ */
 class Loan extends Model
 {
     use HasFactory, SoftDeletes;
@@ -121,18 +126,21 @@ class Loan extends Model
         ]);
 
         // Update loan
-        $this->total_paid += $paymentAmount;
-        $this->outstanding_balance = max(0, $this->outstanding_balance - $principal);
+        $newTotalPaid = (float) ($this->total_paid + $paymentAmount);
+        $newBalance = (float) max(0, $this->outstanding_balance - $principal);
+        
+        $this->total_paid = $newTotalPaid;
+        $this->outstanding_balance = $newBalance;
 
         // Check if paid off
         if ($this->outstanding_balance <= 0.01) {
             $this->status = 'paid_off';
-            $this->outstanding_balance = 0;
+            $this->outstanding_balance = 0.0;
             $this->next_payment_date = null;
         } else {
             // Calculate next payment date
-            $this->next_payment_date = Carbon::parse($this->next_payment_date)
-                ->addMonth();
+            $nextDate = Carbon::parse($this->next_payment_date)->addMonth();
+            $this->next_payment_date = $nextDate;
         }
 
         $this->save();
@@ -140,15 +148,16 @@ class Loan extends Model
         // Update user's outstanding loans
         $this->user->updateOutstandingLoans();
 
-        activity()
-            ->performedOn($this)
-            ->withProperties([
-                'payment_amount' => $paymentAmount,
-                'principal' => $principal,
-                'interest' => $interest,
-                'new_balance' => $this->outstanding_balance,
-            ])
-            ->log('Loan payment processed');
+        // TODO: Add activity logging if package is installed
+        // activity()
+        //     ->performedOn($this)
+        //     ->withProperties([
+        //         'payment_amount' => $paymentAmount,
+        //         'principal' => $principal,
+        //         'interest' => $interest,
+        //         'new_balance' => $this->outstanding_balance,
+        //     ])
+        //     ->log('Loan payment processed');
     }
 
     /**
@@ -249,9 +258,10 @@ class Loan extends Model
             'next_payment_date' => Carbon::parse($this->origination_date)->addMonth(),
         ]);
 
-        activity()
-            ->performedOn($this)
-            ->log('Loan approved');
+        // TODO: Add activity logging if package is installed
+        // activity()
+        //     ->performedOn($this)
+        //     ->log('Loan approved');
     }
 
     /**
@@ -261,10 +271,11 @@ class Loan extends Model
     {
         $this->update(['status' => 'defaulted']);
 
-        activity()
-            ->performedOn($this)
-            ->withProperties(['reason' => $reason])
-            ->log('Loan marked as defaulted');
+        // TODO: Add activity logging if package is installed
+        // activity()
+        //     ->performedOn($this)
+        //     ->withProperties(['reason' => $reason])
+        //     ->log('Loan marked as defaulted');
     }
 
     // Scopes

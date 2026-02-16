@@ -4,24 +4,26 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ExceptionResource\Pages;
 use App\Models\Exception;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Infolists;
-use Filament\Infolists\Infolist;
+use Filament\Schemas\Components;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Schema;
 
 class ExceptionResource extends Resource
 {
     protected static ?string $model = Exception::class;
-    protected static ?string $navigationIcon = 'heroicon-o-exclamation-triangle';
-    protected static ?string $navigationGroup = 'Financial Operations';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-exclamation-triangle';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 6;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\TextInput::make('exception_id')
                     ->default(fn() => Exception::generateExceptionId())
@@ -48,7 +50,7 @@ class ExceptionResource extends Resource
                     ])
                     ->required()
                     ->reactive()
-                    ->afterStateUpdated(function ($state, Forms\Set $set) {
+                    ->afterStateUpdated(function ($state, Set $set) {
                         $slaHours = Exception::getSlaHours($state);
                         $set('sla_hours', $slaHours);
                         $set('sla_deadline', now()->addHours($slaHours));
@@ -86,28 +88,31 @@ class ExceptionResource extends Resource
                 Tables\Columns\TextColumn::make('exception_id')
                     ->searchable()
                     ->copyable(),
-                Tables\Columns\BadgeColumn::make('type')
-                    ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
-                Tables\Columns\BadgeColumn::make('severity')
-                    ->colors([
-                        'secondary' => 'low',
-                        'warning' => 'medium',
-                        'danger' => 'high',
-                        'danger' => 'critical',
-                    ]),
+                Tables\Columns\TextColumn::make('type')
+                    ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state)))
+                    ->badge(),
+                Tables\Columns\TextColumn::make('severity')
+                    ->badge()
+                    ->color(fn($state) => match ($state) {
+                        'low' => 'secondary',
+                        'medium' => 'warning',
+                        'high', 'critical' => 'danger',
+                        default => 'secondary',
+                    }),
                 Tables\Columns\TextColumn::make('description')
                     ->limit(50)
                     ->tooltip(fn($record) => $record->description),
                 Tables\Columns\TextColumn::make('variance_amount')
                     ->money('USD')
                     ->sortable(),
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->colors([
                         'danger' => 'open',
                         'warning' => 'under_investigation',
                         'success' => 'resolved',
                         'secondary' => 'closed',
-                    ]),
+                    ])
+                    ->badge(),
                 Tables\Columns\TextColumn::make('assignedUser.name')
                     ->label('Assigned To'),
                 Tables\Columns\TextColumn::make('sla_deadline')
@@ -128,30 +133,49 @@ class ExceptionResource extends Resource
                 Tables\Filters\Filter::make('open')
                     ->query(fn($query) => $query->open()),
             ])
-            ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                Actions\ViewAction::make(),
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
             ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    public static function infolist(Schema $schema): Schema
     {
-        return $infolist
+        return $schema
             ->schema([
-                Infolists\Components\Section::make('Exception Details')
+                Components\Section::make('Exception Details')
                     ->schema([
                         Infolists\Components\TextEntry::make('exception_id'),
-                        Infolists\Components\BadgeEntry::make('type'),
-                        Infolists\Components\BadgeEntry::make('severity'),
-                        Infolists\Components\BadgeEntry::make('status'),
+                        Infolists\Components\TextEntry::make('type')
+                            ->badge()
+                            ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
+                        Infolists\Components\TextEntry::make('severity')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'low' => 'secondary',
+                                'medium' => 'warning',
+                                'high' => 'danger',
+                                'critical' => 'danger',
+                                default => 'secondary',
+                            }),
+                        Infolists\Components\TextEntry::make('status')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'open' => 'danger',
+                                'under_investigation' => 'warning',
+                                'resolved' => 'success',
+                                'closed' => 'secondary',
+                                default => 'secondary',
+                            }),
                         Infolists\Components\TextEntry::make('description')
                             ->columnSpanFull(),
                         Infolists\Components\TextEntry::make('variance_amount')
                             ->money('USD'),
                     ])
                     ->columns(2),
-                
-                Infolists\Components\Section::make('Assignment & SLA')
+
+                Components\Section::make('Assignment & SLA')
                     ->schema([
                         Infolists\Components\TextEntry::make('assignedUser.name')
                             ->label('Assigned To'),
@@ -163,8 +187,8 @@ class ExceptionResource extends Resource
                             ->boolean(),
                     ])
                     ->columns(2),
-                
-                Infolists\Components\Section::make('Resolution')
+
+                Components\Section::make('Resolution')
                     ->schema([
                         Infolists\Components\TextEntry::make('resolution_notes')
                             ->columnSpanFull(),

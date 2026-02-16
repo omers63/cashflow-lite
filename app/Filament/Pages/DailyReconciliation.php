@@ -9,11 +9,11 @@ use Filament\Notifications\Notification;
 
 class DailyReconciliation extends Page
 {
-    protected static ?string $navigationIcon = 'heroicon-o-calculator';
-    protected static string $view = 'filament.pages.daily-reconciliation';
-    protected static ?string $navigationGroup = 'Financial Operations';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calculator';
+    protected string $view = 'filament.pages.daily-reconciliation';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 10;
-    
+
     public ?array $latestReconciliation = null;
     public ?array $systemTotals = null;
 
@@ -37,7 +37,7 @@ class DailyReconciliation extends Page
                     try {
                         $service = app(ReconciliationService::class);
                         $reconciliation = $service->runDailyReconciliation();
-                        
+
                         if ($reconciliation->all_passed) {
                             Notification::make()
                                 ->title('Reconciliation Passed!')
@@ -51,7 +51,7 @@ class DailyReconciliation extends Page
                                 ->body("{$reconciliation->checks_failed} checks failed.")
                                 ->send();
                         }
-                        
+
                         $this->mount();
                     } catch (\Exception $e) {
                         Notification::make()

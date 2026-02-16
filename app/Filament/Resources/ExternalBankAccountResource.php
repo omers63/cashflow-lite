@@ -4,23 +4,24 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ExternalBankAccountResource\Pages;
 use App\Models\ExternalBankAccount;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 
 class ExternalBankAccountResource extends Resource
 {
     protected static ?string $model = ExternalBankAccount::class;
-    protected static ?string $navigationIcon = 'heroicon-o-building-library';
-    protected static ?string $navigationGroup = 'Settings';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-library';
+    protected static string|\UnitEnum|null $navigationGroup = 'Settings';
     protected static ?int $navigationSort = 1;
     protected static ?string $navigationLabel = 'External Banks';
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\TextInput::make('bank_name')
                     ->required()
@@ -74,12 +75,13 @@ class ExternalBankAccountResource extends Resource
                             ->money('USD')
                             ->label('Total'),
                     ]),
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->colors([
                         'success' => 'active',
                         'warning' => 'inactive',
                         'danger' => 'closed',
-                    ]),
+                    ])
+                    ->badge(),
                 Tables\Columns\TextColumn::make('imports_count')
                     ->label('Imports')
                     ->counts('imports'),
@@ -92,9 +94,9 @@ class ExternalBankAccountResource extends Resource
                         'closed' => 'Closed',
                     ]),
             ])
-            ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                Actions\ViewAction::make(),
+                Actions\EditAction::make(),
             ]);
     }
 

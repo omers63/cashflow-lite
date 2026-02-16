@@ -4,24 +4,25 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ReconciliationResource\Pages;
 use App\Models\Reconciliation;
+use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Infolists;
-use Filament\Infolists\Infolist;
+use Filament\Schemas\Components;
+use Filament\Schemas\Schema;
 
 class ReconciliationResource extends Resource
 {
     protected static ?string $model = Reconciliation::class;
-    protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-check';
-    protected static ?string $navigationGroup = 'Financial Operations';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 5;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\DatePicker::make('reconciliation_date')
                     ->required()
@@ -56,12 +57,13 @@ class ReconciliationResource extends Resource
                 Tables\Columns\TextColumn::make('reconciliation_date')
                     ->date()
                     ->sortable(),
-                Tables\Columns\BadgeColumn::make('type')
+                Tables\Columns\TextColumn::make('type')
                     ->colors([
                         'primary' => 'daily',
                         'success' => 'monthly',
                         'secondary' => 'manual',
-                    ]),
+                    ])
+                    ->badge(),
                 Tables\Columns\IconColumn::make('all_passed')
                     ->boolean()
                     ->trueIcon('heroicon-o-check-circle')
@@ -78,13 +80,14 @@ class ReconciliationResource extends Resource
                 Tables\Columns\TextColumn::make('total_variance')
                     ->money('USD')
                     ->sortable(),
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->colors([
                         'warning' => 'pending',
                         'success' => 'complete',
                         'danger' => 'failed',
                         'info' => 'under_review',
-                    ]),
+                    ])
+                    ->badge(),
                 Tables\Columns\TextColumn::make('performer.name')
                     ->label('Performed By'),
             ])
@@ -95,21 +98,36 @@ class ReconciliationResource extends Resource
                 Tables\Filters\Filter::make('failed')
                     ->query(fn($query) => $query->where('all_passed', false)),
             ])
-            ->actions([
-                Tables\Actions\ViewAction::make(),
+            ->recordActions([
+                Actions\ViewAction::make(),
             ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    public static function infolist(Schema $schema): Schema
     {
-        return $infolist
+        return $schema
             ->schema([
-                Infolists\Components\Section::make('Reconciliation Details')
+                Components\Section::make('Reconciliation Details')
                     ->schema([
                         Infolists\Components\TextEntry::make('reconciliation_date')
                             ->date(),
-                        Infolists\Components\BadgeEntry::make('type'),
-                        Infolists\Components\BadgeEntry::make('status'),
+                        Infolists\Components\TextEntry::make('type')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'daily' => 'primary',
+                                'monthly' => 'success',
+                                'manual' => 'secondary',
+                                default => 'secondary',
+                            }),
+                        Infolists\Components\TextEntry::make('status')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'pending' => 'warning',
+                                'complete' => 'success',
+                                'failed' => 'danger',
+                                'under_review' => 'info',
+                                default => 'secondary',
+                            }),
                         Infolists\Components\IconEntry::make('all_passed')
                             ->boolean(),
                         Infolists\Components\TextEntry::make('checks_passed'),
@@ -118,15 +136,33 @@ class ReconciliationResource extends Resource
                             ->money('USD'),
                     ])
                     ->columns(2),
-                
-                Infolists\Components\Section::make('Check Results')
+
+                Components\Section::make('Check Results')
                     ->schema([
                         Infolists\Components\KeyValueEntry::make('check_results')
                             ->label('')
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->state(function ($record) {
+                                $results = $record->check_results;
+                                if (!is_array($results)) {
+                                    return [];
+                                }
+                                // Convert any array/nested values to strings
+                                return collect($results)->mapWithKeys(function ($value, $key) {
+                                    $formattedValue = $value;
+                                    if (is_array($value)) {
+                                        $formattedValue = json_encode($value);
+                                    } elseif (is_bool($value)) {
+                                        $formattedValue = $value ? 'Passed' : 'Failed';
+                                    } elseif (!is_string($value) && !is_null($value)) {
+                                        $formattedValue = (string) $value;
+                                    }
+                                    return [$key => $formattedValue];
+                                })->toArray();
+                            }),
                     ]),
-                
-                Infolists\Components\Section::make('Additional Information')
+
+                Components\Section::make('Additional Information')
                     ->schema([
                         Infolists\Components\TextEntry::make('performer.name')
                             ->label('Performed By'),

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Resources/ExceptionResource\Pages;
+namespace App\Filament\Resources\ExceptionResource\Pages;
 
 use App\Filament\Resources\ExceptionResource;
 use Filament\Actions;

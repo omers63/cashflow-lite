@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
+use Filament\Actions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -11,19 +12,21 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components;
 
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
-    protected static ?string $navigationIcon = 'heroicon-o-users';
-    protected static ?string $navigationGroup = 'User Management';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-users';
+    protected static string|\UnitEnum|null $navigationGroup = 'User Management';
     protected static ?int $navigationSort = 1;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
-                Forms\Components\Section::make('User Information')
+                Components\Section::make('User Information')
                     ->schema([
                         Forms\Components\TextInput::make('user_code')
                             ->label('User Code')
@@ -31,21 +34,21 @@ class UserResource extends Resource
                             ->disabled()
                             ->dehydrated()
                             ->required(),
-                        
+
                         Forms\Components\TextInput::make('name')
                             ->required()
                             ->maxLength(255),
-                        
+
                         Forms\Components\TextInput::make('email')
                             ->email()
                             ->required()
                             ->unique(ignoreRecord: true)
                             ->maxLength(255),
-                        
+
                         Forms\Components\TextInput::make('phone')
                             ->tel()
                             ->maxLength(20),
-                        
+
                         Forms\Components\Select::make('status')
                             ->options([
                                 'active' => 'Active',
@@ -54,7 +57,7 @@ class UserResource extends Resource
                             ])
                             ->required()
                             ->default('active'),
-                        
+
                         Forms\Components\TextInput::make('password')
                             ->password()
                             ->required(fn(string $context) => $context === 'create')
@@ -63,7 +66,7 @@ class UserResource extends Resource
                     ])
                     ->columns(2),
 
-                Forms\Components\Section::make('Account Balances')
+                Components\Section::make('Account Balances')
                     ->schema([
                         Forms\Components\TextInput::make('bank_account_balance')
                             ->label('User Bank Account Balance')
@@ -72,7 +75,7 @@ class UserResource extends Resource
                             ->prefix('$')
                             ->step(0.01)
                             ->disabled(fn(string $context) => $context === 'edit'),
-                        
+
                         Forms\Components\TextInput::make('fund_account_balance')
                             ->label('User Fund Account Balance')
                             ->numeric()
@@ -80,7 +83,7 @@ class UserResource extends Resource
                             ->prefix('$')
                             ->step(0.01)
                             ->disabled(fn(string $context) => $context === 'edit'),
-                        
+
                         Forms\Components\TextInput::make('outstanding_loans')
                             ->label('Outstanding Loans')
                             ->numeric()
@@ -88,12 +91,15 @@ class UserResource extends Resource
                             ->prefix('$')
                             ->step(0.01)
                             ->disabled(),
-                        
-                        Forms\Components\Placeholder::make('available_to_borrow')
+
+                        Forms\Components\TextInput::make('available_to_borrow')
                             ->label('Available to Borrow')
-                            ->content(fn(?User $record) => $record 
-                                ? '$' . number_format($record->available_to_borrow, 2)
-                                : '$0.00')
+                            ->prefix('$')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->formatStateUsing(fn(?User $record) => $record
+                                ? number_format($record->available_to_borrow, 2)
+                                : '0.00')
                             ->visible(fn(string $context) => $context === 'edit'),
                     ])
                     ->columns(2)
@@ -110,15 +116,15 @@ class UserResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->copyable(),
-                
+
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
-                
+
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
                     ->copyable(),
-                
+
                 Tables\Columns\TextColumn::make('bank_account_balance')
                     ->label('Bank Account')
                     ->money('USD')
@@ -128,7 +134,7 @@ class UserResource extends Resource
                             ->money('USD')
                             ->label('Total'),
                     ]),
-                
+
                 Tables\Columns\TextColumn::make('fund_account_balance')
                     ->label('Fund Account')
                     ->money('USD')
@@ -138,7 +144,7 @@ class UserResource extends Resource
                             ->money('USD')
                             ->label('Total'),
                     ]),
-                
+
                 Tables\Columns\TextColumn::make('outstanding_loans')
                     ->label('Loans')
                     ->money('USD')
@@ -148,21 +154,23 @@ class UserResource extends Resource
                             ->money('USD')
                             ->label('Total'),
                     ]),
-                
+
                 Tables\Columns\TextColumn::make('available_to_borrow')
                     ->label('Available')
                     ->money('USD')
                     ->sortable(query: function ($query, $direction) {
                         $query->orderByRaw("(fund_account_balance - outstanding_loans) {$direction}");
                     }),
-                
-                Tables\Columns\BadgeColumn::make('status')
-                    ->colors([
-                        'success' => 'active',
-                        'warning' => 'inactive',
-                        'danger' => 'suspended',
-                    ]),
-                
+
+                Tables\Columns\TextColumn::make('status')
+                    ->badge()
+                    ->color(fn($state) => match ($state) {
+                        'active' => 'success',
+                        'inactive' => 'warning',
+                        'suspended' => 'danger',
+                        default => 'secondary',
+                    }),
+
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -175,24 +183,24 @@ class UserResource extends Resource
                         'inactive' => 'Inactive',
                         'suspended' => 'Suspended',
                     ]),
-                
+
                 Tables\Filters\Filter::make('has_loans')
                     ->label('Has Active Loans')
                     ->query(fn($query) => $query->where('outstanding_loans', '>', 0)),
-                
+
                 Tables\Filters\Filter::make('can_borrow')
                     ->label('Can Borrow')
                     ->query(fn($query) => $query->whereRaw('fund_account_balance > outstanding_loans')),
             ])
-            ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                
-                Tables\Actions\Action::make('suspend')
+            ->recordActions([
+                Actions\ViewAction::make(),
+                Actions\EditAction::make(),
+
+                Actions\Action::make('suspend')
                     ->icon('heroicon-o-no-symbol')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->form([
+                    ->schema([
                         Forms\Components\Textarea::make('reason')
                             ->required()
                             ->label('Suspension Reason'),
@@ -201,26 +209,26 @@ class UserResource extends Resource
                         $record->suspend($data['reason']);
                     })
                     ->visible(fn(User $record) => $record->status === 'active'),
-                
-                Tables\Actions\Action::make('activate')
+
+                Actions\Action::make('activate')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->requiresConfirmation()
                     ->action(fn(User $record) => $record->activate())
                     ->visible(fn(User $record) => $record->status !== 'active'),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
                 ]),
             ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    public static function infolist(Schema $schema): Schema
     {
-        return $infolist
+        return $schema
             ->schema([
-                Infolists\Components\Section::make('User Information')
+                Components\Section::make('User Information')
                     ->schema([
                         Infolists\Components\TextEntry::make('user_code')
                             ->label('User ID'),
@@ -228,7 +236,8 @@ class UserResource extends Resource
                         Infolists\Components\TextEntry::make('email')
                             ->copyable(),
                         Infolists\Components\TextEntry::make('phone'),
-                        Infolists\Components\BadgeEntry::make('status')
+                        Infolists\Components\TextEntry::make('status')
+                            ->badge()
                             ->colors([
                                 'success' => 'active',
                                 'warning' => 'inactive',
@@ -239,7 +248,7 @@ class UserResource extends Resource
                     ])
                     ->columns(2),
 
-                Infolists\Components\Section::make('Account Balances')
+                Components\Section::make('Account Balances')
                     ->schema([
                         Infolists\Components\TextEntry::make('bank_account_balance')
                             ->label('Bank Account')
@@ -257,7 +266,7 @@ class UserResource extends Resource
                     ])
                     ->columns(2),
 
-                Infolists\Components\Section::make('Activity Summary')
+                Components\Section::make('Activity Summary')
                     ->schema([
                         Infolists\Components\TextEntry::make('total_contributions')
                             ->label('Total Contributions')
