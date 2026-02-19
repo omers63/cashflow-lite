@@ -6,7 +6,6 @@ use App\Models\ExternalBankAccount;
 use App\Models\ExternalBankImport;
 use App\Models\MasterAccount;
 use App\Models\Transaction;
-use App\Services\ReconciliationService;
 use Filament\Forms;
 use Filament\Actions;
 use Filament\Pages\Page;
@@ -34,124 +33,131 @@ class ImportExternalBank extends Page implements HasTable
     protected static ?int $navigationSort = 3;
     protected static ?string $title = 'Import External Bank Transactions';
 
-    /* ------------------------------------------------------------------ */
-    /*  Public state                                                        */
-    /* ------------------------------------------------------------------ */
-
     public ?array $data = [];
     public bool $showPreview = false;
     public array $previewRows = [];
     public int $duplicateCount = 0;
     public int $newCount = 0;
     public ?int $selectedBankId = null;
-    public ?string $importMode = 'manual'; // 'manual' | 'csv'
-
-    /* ------------------------------------------------------------------ */
-    /*  Lifecycle                                                           */
-    /* ------------------------------------------------------------------ */
 
     public function mount(): void
     {
-        $this->form->fill();
+        $this->form->fill([
+            'transaction_date' => now(),
+        ]);
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Form – single manual entry                                          */
-    /* ------------------------------------------------------------------ */
 
     public function form(Schema $schema): Schema
     {
         return $schema
             ->schema([
-                Components\Section::make('Import Settings')
-                    ->schema([
-                        Forms\Components\Select::make('external_bank_account_id')
-                            ->label('Bank Account')
-                            ->options(
-                                ExternalBankAccount::active()
-                                    ->get()
-                                    ->mapWithKeys(fn($b) => [
-                                        $b->id => "{$b->bank_name} (****{$b->account_number})",
+                Components\Tabs::make('Import Method')
+                    ->tabs([
+                        Components\Tabs\Tab::make('Manual Entry')
+                            ->icon('heroicon-o-pencil-square')
+                            ->schema([
+                                Components\Section::make()
+                                    ->schema([
+                                        Forms\Components\Select::make('external_bank_account_id')
+                                            ->label('Bank Account')
+                                            ->options(
+                                                ExternalBankAccount::active()
+                                                    ->get()
+                                                    ->mapWithKeys(fn($b) => [
+                                                        $b->id => "{$b->bank_name} - ****{$b->account_number}",
+                                                    ])
+                                            )
+                                            ->required()
+                                            ->searchable()
+                                            ->reactive()
+                                            ->afterStateUpdated(fn($state) => $this->selectedBankId = $state)
+                                            ->helperText('Select the external bank account for this transaction')
+                                            ->prefixIcon('heroicon-o-building-library'),
+
+                                        Forms\Components\DateTimePicker::make('transaction_date')
+                                            ->label('Transaction Date')
+                                            ->required()
+                                            ->default(now())
+                                            ->native(false)
+                                            ->prefixIcon('heroicon-o-calendar'),
+
+                                        Forms\Components\TextInput::make('external_ref_id')
+                                            ->label('Reference ID')
+                                            ->required()
+                                            ->maxLength(255)
+                                            ->unique(ExternalBankImport::class, 'external_ref_id', ignoreRecord: true)
+                                            ->helperText('Bank transaction reference number')
+                                            ->prefixIcon('heroicon-o-hashtag'),
+
+                                        Forms\Components\TextInput::make('amount')
+                                            ->label('Amount')
+                                            ->numeric()
+                                            ->prefix('$')
+                                            ->required()
+                                            ->step(0.01)
+                                            ->minValue(0.01)
+                                            ->prefixIcon('heroicon-o-currency-dollar'),
+
+                                        Forms\Components\Textarea::make('description')
+                                            ->label('Description')
+                                            ->rows(2)
+                                            ->maxLength(500)
+                                            ->columnSpanFull()
+                                            ->placeholder('Transaction description from bank statement'),
+
+                                        Forms\Components\Textarea::make('notes')
+                                            ->label('Internal Notes')
+                                            ->rows(2)
+                                            ->maxLength(500)
+                                            ->columnSpanFull()
+                                            ->placeholder('Add any internal notes or comments'),
                                     ])
-                            )
-                            ->required()
-                            ->searchable()
-                            ->reactive()
-                            ->afterStateUpdated(fn($state) => $this->selectedBankId = $state),
+                                    ->columns(2),
+                            ]),
 
-                        Forms\Components\Select::make('import_mode')
-                            ->label('Import Method')
-                            ->options([
-                                'manual' => 'Manual Entry',
-                                'csv' => 'CSV Upload',
-                            ])
-                            ->default('manual')
-                            ->required()
-                            ->reactive()
-                            ->afterStateUpdated(fn($state) => $this->importMode = $state),
+                        Components\Tabs\Tab::make('CSV Upload')
+                            ->icon('heroicon-o-document-arrow-up')
+                            ->schema([
+                                Components\Section::make()
+                                    ->schema([
+                                        Forms\Components\Select::make('external_bank_account_id_csv')
+                                            ->label('Bank Account')
+                                            ->options(
+                                                ExternalBankAccount::active()
+                                                    ->get()
+                                                    ->mapWithKeys(fn($b) => [
+                                                        $b->id => "{$b->bank_name} - ****{$b->account_number}",
+                                                    ])
+                                            )
+                                            ->required()
+                                            ->searchable()
+                                            ->helperText('Select the external bank account for these transactions')
+                                            ->prefixIcon('heroicon-o-building-library'),
+
+                                        Forms\Components\FileUpload::make('csv_file')
+                                            ->label('Upload CSV File')
+                                            ->acceptedFileTypes(['text/csv', 'application/vnd.ms-excel', 'text/plain'])
+                                            ->maxSize(10240)
+                                            ->storeFiles(false)
+                                            ->columnSpanFull()
+                                            ->helperText('Maximum file size: 10MB'),
+                                    ])
+                                    ->columns(1),
+
+                                Components\Section::make('CSV Format Guide')
+                                    ->schema([
+                                        Forms\Components\Placeholder::make('format_info')
+                                            ->content(fn() => view('filament.components.csv-format-guide')),
+                                    ])
+                                    ->collapsed()
+                                    ->compact(),
+                            ]),
                     ])
-                    ->columns(2),
-
-                // ── Manual entry ──────────────────────────────────────────
-                Components\Section::make('Transaction Details')
-                    ->schema([
-                        Forms\Components\DateTimePicker::make('transaction_date')
-                            ->label('Transaction Date')
-                            ->required()
-                            ->default(now()),
-
-                        Forms\Components\TextInput::make('external_ref_id')
-                            ->label('External Reference ID')
-                            ->required()
-                            ->maxLength(255)
-                            ->helperText('Unique reference from your bank statement'),
-
-                        Forms\Components\TextInput::make('amount')
-                            ->label('Amount')
-                            ->numeric()
-                            ->prefix('$')
-                            ->required()
-                            ->step(0.01)
-                            ->minValue(0.01),
-
-                        Forms\Components\Textarea::make('description')
-                            ->label('Description')
-                            ->rows(2)
-                            ->maxLength(500),
-
-                        Forms\Components\Textarea::make('notes')
-                            ->label('Notes')
-                            ->rows(2)
-                            ->maxLength(500),
-                    ])
-                    ->columns(2)
-                    ->visible(fn(Get $get) => $get('import_mode') === 'manual'),
-
-                // ── CSV upload ────────────────────────────────────────────
-                Components\Section::make('CSV Upload')
-                    ->schema([
-                        Forms\Components\FileUpload::make('csv_file')
-                            ->label('CSV File')
-                            ->acceptedFileTypes(['text/csv', 'application/vnd.ms-excel', 'text/plain'])
-                            ->maxSize(10240)
-                            ->helperText('Required columns: transaction_date, external_ref_id, amount, description')
-                            ->storeFiles(false),
-
-                        Forms\Components\TextInput::make('csv_format')
-                            ->label('Expected CSV Format')
-                            ->default('transaction_date, external_ref_id, amount, description')
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->helperText('Date format: YYYY-MM-DD HH:MM:SS'),
-                    ])
-                    ->visible(fn(Get $get) => $get('import_mode') === 'csv'),
+                    ->activeTab(1)
+                    ->columnSpanFull(),
             ])
             ->statePath('data');
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Table – recent imports                                              */
-    /* ------------------------------------------------------------------ */
 
     public function table(Table $table): Table
     {
@@ -165,38 +171,50 @@ class ImportExternalBank extends Page implements HasTable
             ->columns([
                 Tables\Columns\TextColumn::make('import_date')
                     ->label('Import Date')
-                    ->date()
-                    ->sortable(),
+                    ->dateTime('M d, Y g:i A')
+                    ->sortable()
+                    ->description(fn($record) => $record->import_date->diffForHumans()),
 
                 Tables\Columns\TextColumn::make('externalBankAccount.bank_name')
                     ->label('Bank')
-                    ->searchable(),
+                    ->searchable()
+                    ->badge()
+                    ->color('info'),
 
                 Tables\Columns\TextColumn::make('transaction_date')
-                    ->label('Txn Date')
+                    ->label('Transaction Date')
                     ->dateTime('M d, Y')
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('external_ref_id')
                     ->label('Reference')
                     ->searchable()
-                    ->copyable(),
+                    ->copyable()
+                    ->copyMessage('Reference copied!')
+                    ->copyMessageDuration(1500)
+                    ->icon('heroicon-o-hashtag'),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->money('USD')
-                    ->sortable(),
+                    ->sortable()
+                    ->alignEnd()
+                    ->weight('bold')
+                    ->color('success'),
 
                 Tables\Columns\TextColumn::make('description')
-                    ->limit(30)
-                    ->tooltip(fn($record) => $record->description),
+                    ->limit(40)
+                    ->tooltip(fn($record) => $record->description)
+                    ->wrap(),
 
                 Tables\Columns\IconColumn::make('is_duplicate')
-                    ->label('Duplicate')
+                    ->label('Status')
                     ->boolean()
                     ->trueIcon('heroicon-o-exclamation-circle')
                     ->falseIcon('heroicon-o-check-circle')
                     ->trueColor('danger')
-                    ->falseColor('success'),
+                    ->falseColor('success')
+                    ->size('sm')
+                    ->tooltip(fn($record) => $record->is_duplicate ? 'Duplicate transaction' : 'Unique transaction'),
 
                 Tables\Columns\IconColumn::make('imported_to_master')
                     ->label('Imported')
@@ -204,32 +222,52 @@ class ImportExternalBank extends Page implements HasTable
                     ->trueIcon('heroicon-o-check-circle')
                     ->falseIcon('heroicon-o-clock')
                     ->trueColor('success')
-                    ->falseColor('warning'),
+                    ->falseColor('warning')
+                    ->size('sm')
+                    ->tooltip(fn($record) => $record->imported_to_master ? 'Imported to Master' : 'Pending import'),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('external_bank_account_id')
                     ->label('Bank Account')
-                    ->relationship('externalBankAccount', 'bank_name'),
+                    ->relationship('externalBankAccount', 'bank_name')
+                    ->multiple()
+                    ->preload(),
 
-                Tables\Filters\Filter::make('duplicates_only')
-                    ->label('Duplicates Only')
-                    ->query(fn($query) => $query->where('is_duplicate', true)),
+                Tables\Filters\TernaryFilter::make('is_duplicate')
+                    ->label('Duplicate Status')
+                    ->placeholder('All transactions')
+                    ->trueLabel('Duplicates only')
+                    ->falseLabel('Unique only'),
 
-                Tables\Filters\Filter::make('not_imported')
-                    ->label('Not Yet Imported')
-                    ->query(fn($query) => $query->where('imported_to_master', false)
-                        ->where('is_duplicate', false)),
+                Tables\Filters\TernaryFilter::make('imported_to_master')
+                    ->label('Import Status')
+                    ->placeholder('All transactions')
+                    ->trueLabel('Imported')
+                    ->falseLabel('Not imported'),
 
-                Tables\Filters\Filter::make('date')
-                    ->schema([
-                        Forms\Components\DatePicker::make('from')->label('From'),
-                        Forms\Components\DatePicker::make('to')->label('To'),
+                Tables\Filters\Filter::make('date_range')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')
+                            ->label('From Date')
+                            ->native(false),
+                        Forms\Components\DatePicker::make('to')
+                            ->label('To Date')
+                            ->native(false),
                     ])
-                    ->query(
-                        fn($query, array $data) => $query
-                            ->when($data['from'], fn($q) => $q->whereDate('import_date', '>=', $data['from']))
-                            ->when($data['to'], fn($q) => $q->whereDate('import_date', '<=', $data['to']))
-                    ),
+                    ->query(fn($query, array $data) => $query
+                        ->when($data['from'], fn($q) => $q->whereDate('import_date', '>=', $data['from']))
+                        ->when($data['to'], fn($q) => $q->whereDate('import_date', '<=', $data['to']))
+                    )
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['from'] ?? null) {
+                            $indicators[] = 'From: ' . \Carbon\Carbon::parse($data['from'])->toFormattedDateString();
+                        }
+                        if ($data['to'] ?? null) {
+                            $indicators[] = 'To: ' . \Carbon\Carbon::parse($data['to'])->toFormattedDateString();
+                        }
+                        return $indicators;
+                    }),
             ])
             ->recordActions([
                 Actions\Action::make('import_now')
@@ -237,6 +275,8 @@ class ImportExternalBank extends Page implements HasTable
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
                     ->requiresConfirmation()
+                    ->modalHeading('Import Transaction')
+                    ->modalDescription(fn($record) => "Import transaction of \${$record->amount} to Master Bank Account?")
                     ->action(fn(ExternalBankImport $record) => $this->importSingleRecord($record))
                     ->visible(fn(ExternalBankImport $record) => !$record->imported_to_master && !$record->is_duplicate),
 
@@ -247,7 +287,10 @@ class ImportExternalBank extends Page implements HasTable
                     Actions\BulkAction::make('import_selected')
                         ->label('Import Selected')
                         ->icon('heroicon-o-arrow-down-tray')
+                        ->color('success')
                         ->requiresConfirmation()
+                        ->modalHeading('Bulk Import')
+                        ->modalDescription('Import all selected transactions to Master Bank Account?')
                         ->action(fn($records) => $this->bulkImport($records))
                         ->deselectRecordsAfterCompletion(),
 
@@ -256,50 +299,54 @@ class ImportExternalBank extends Page implements HasTable
             ])
             ->defaultSort('import_date', 'desc')
             ->striped()
-            ->paginated([10, 25, 50]);
+            ->paginated([10, 25, 50, 100])
+            ->poll('30s')
+            ->emptyStateHeading('No transactions imported yet')
+            ->emptyStateDescription('Start by importing your first transaction using the form above.')
+            ->emptyStateIcon('heroicon-o-inbox');
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Header actions                                                      */
-    /* ------------------------------------------------------------------ */
 
     protected function getHeaderActions(): array
     {
         return [
             Action::make('preview')
-                ->label('Preview Import')
+                ->label('Preview')
                 ->icon('heroicon-o-eye')
-                ->color('info')
-                ->action(fn() => $this->previewImport()),
+                ->color('gray')
+                ->action(fn() => $this->previewImport())
+                ->keyBindings(['ctrl+p', 'cmd+p']),
 
             Action::make('import')
-                ->label('Confirm Import')
-                ->icon('heroicon-o-arrow-down-tray')
+                ->label('Import Transaction')
+                ->icon('heroicon-o-check-circle')
                 ->color('success')
                 ->requiresConfirmation()
                 ->modalHeading('Confirm Import')
-                ->modalDescription(fn() => "Ready to import {$this->newCount} transaction(s). {$this->duplicateCount} duplicate(s) will be skipped.")
+                ->modalDescription(fn() => $this->duplicateCount > 0
+                    ? "Found {$this->duplicateCount} duplicate(s). Only {$this->newCount} new transaction(s) will be imported."
+                    : "Ready to import {$this->newCount} transaction(s).")
+                ->modalIcon('heroicon-o-arrow-down-tray')
                 ->action(fn() => $this->processImport())
-                ->visible(fn() => $this->showPreview && $this->newCount > 0),
+                ->visible(fn() => $this->showPreview && $this->newCount > 0)
+                ->keyBindings(['ctrl+enter', 'cmd+enter']),
         ];
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Preview logic                                                       */
-    /* ------------------------------------------------------------------ */
 
     public function previewImport(): void
     {
         $this->validate();
-
         $data = $this->form->getState();
 
-        if ($data['import_mode'] === 'manual') {
-            $this->previewManualEntry($data);
-        } else {
-            $this->previewCsvUpload($data);
+        if (!isset($data['external_bank_account_id'])) {
+            Notification::make()
+                ->title('Bank Account Required')
+                ->body('Please select a bank account first.')
+                ->warning()
+                ->send();
+            return;
         }
 
+        $this->previewManualEntry($data);
         $this->showPreview = true;
     }
 
@@ -324,32 +371,26 @@ class ImportExternalBank extends Page implements HasTable
 
         $this->duplicateCount = $isDuplicate ? 1 : 0;
         $this->newCount = $isDuplicate ? 0 : 1;
-    }
 
-    protected function previewCsvUpload(array $data): void
-    {
-        // CSV parsing would live here in a real implementation.
-        // Keeping the stub clean for the package.
-        Notification::make()
-            ->title('CSV Preview')
-            ->body('CSV parsing will process rows after upload. Switch to Manual Entry to preview a single transaction now.')
-            ->info()
-            ->send();
+        if ($isDuplicate) {
+            Notification::make()
+                ->title('Duplicate Detected')
+                ->body('This transaction already exists in the system.')
+                ->warning()
+                ->send();
+        } else {
+            Notification::make()
+                ->title('Preview Ready')
+                ->body('Transaction validated and ready to import.')
+                ->success()
+                ->send();
+        }
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Import logic                                                        */
-    /* ------------------------------------------------------------------ */
 
     public function processImport(): void
     {
         $data = $this->form->getState();
-
-        if ($data['import_mode'] === 'manual') {
-            $this->importManualEntry($data);
-        } else {
-            $this->importCsvFile($data);
-        }
+        $this->importManualEntry($data);
     }
 
     protected function importManualEntry(array $data): void
@@ -386,7 +427,17 @@ class ImportExternalBank extends Page implements HasTable
                     ? 'Transaction already exists. Marked as duplicate.'
                     : 'Transaction imported to Master Bank Account.')
                 ->color($isDuplicate ? 'warning' : 'success')
+                ->duration(5000)
                 ->send();
+
+            $this->showPreview = false;
+            $this->previewRows = [];
+            $this->newCount = 0;
+            $this->duplicateCount = 0;
+            $this->form->fill([
+                'transaction_date' => now(),
+                'external_bank_account_id' => $bankId,
+            ]);
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -394,29 +445,10 @@ class ImportExternalBank extends Page implements HasTable
                 ->title('Import Failed')
                 ->body($e->getMessage())
                 ->danger()
+                ->duration(10000)
                 ->send();
         }
-
-        $this->showPreview = false;
-        $this->previewRows = [];
-        $this->newCount = 0;
-        $this->duplicateCount = 0;
-        $this->form->fill();
     }
-
-    protected function importCsvFile(array $data): void
-    {
-        // Full CSV import logic would be implemented here.
-        Notification::make()
-            ->title('CSV Import')
-            ->body('CSV import queued for processing.')
-            ->info()
-            ->send();
-    }
-
-    /* ------------------------------------------------------------------ */
-    /*  Import a single record from the table action                       */
-    /* ------------------------------------------------------------------ */
 
     protected function importSingleRecord(ExternalBankImport $record): void
     {
@@ -427,6 +459,7 @@ class ImportExternalBank extends Page implements HasTable
 
             Notification::make()
                 ->title('Imported Successfully')
+                ->body("Transaction of \${$record->amount} imported to Master Bank.")
                 ->success()
                 ->send();
 
@@ -439,10 +472,6 @@ class ImportExternalBank extends Page implements HasTable
                 ->send();
         }
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Bulk import from table                                             */
-    /* ------------------------------------------------------------------ */
 
     protected function bulkImport($records): void
     {
@@ -460,6 +489,13 @@ class ImportExternalBank extends Page implements HasTable
                 $imported++;
             }
             DB::commit();
+
+            Notification::make()
+                ->title('Bulk Import Complete')
+                ->body("{$imported} transaction(s) imported" . ($skipped > 0 ? ", {$skipped} skipped" : "") . ".")
+                ->success()
+                ->send();
+
         } catch (\Throwable $e) {
             DB::rollBack();
             Notification::make()
@@ -467,19 +503,8 @@ class ImportExternalBank extends Page implements HasTable
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
-            return;
         }
-
-        Notification::make()
-            ->title('Bulk Import Complete')
-            ->body("{$imported} imported, {$skipped} skipped.")
-            ->success()
-            ->send();
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Shared: post to master bank                                        */
-    /* ------------------------------------------------------------------ */
 
     protected function postToMasterBank(ExternalBankImport $import, int $bankId): void
     {
@@ -505,18 +530,11 @@ class ImportExternalBank extends Page implements HasTable
             'transaction_id' => $transaction->id,
         ]);
 
-        // Keep external bank balance in sync
         $bank->increment('current_balance', $import->amount);
-
-        // Keep master bank balance in sync
         MasterAccount::where('account_type', 'master_bank')
             ->first()
-                ?->increment('balance', $import->amount);
+            ?->increment('balance', $import->amount);
     }
-
-    /* ------------------------------------------------------------------ */
-    /*  Computed props for the view                                        */
-    /* ------------------------------------------------------------------ */
 
     public function getMasterBankBalanceProperty(): string
     {
