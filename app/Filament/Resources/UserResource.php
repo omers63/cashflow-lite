@@ -74,7 +74,7 @@ class UserResource extends Resource
                             ->default(0)
                             ->prefix('$')
                             ->step(0.01)
-                            ->disabled(fn(string $context) => $context === 'edit'),
+                            ->helperText('Editable for balance adjustments and corrections'),
 
                         Forms\Components\TextInput::make('fund_account_balance')
                             ->label('User Fund Account Balance')
@@ -82,7 +82,7 @@ class UserResource extends Resource
                             ->default(0)
                             ->prefix('$')
                             ->step(0.01)
-                            ->disabled(fn(string $context) => $context === 'edit'),
+                            ->helperText('Editable for balance adjustments and corrections'),
 
                         Forms\Components\TextInput::make('outstanding_loans')
                             ->label('Outstanding Loans')

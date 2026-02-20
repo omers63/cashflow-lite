@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Reconciliation;
 use App\Services\ReconciliationService;
 use Filament\Pages\Page;
 use Filament\Actions\Action;
@@ -27,7 +28,29 @@ class DailyReconciliation extends Page
 
     protected function getHeaderActions(): array
     {
+        $latest = $this->latestReconciliation['latest'] ?? null;
+
         return [
+            Action::make('delete_latest')
+                ->label('Delete Latest')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('Delete Latest Reconciliation')
+                ->modalDescription('Are you sure you want to delete the latest reconciliation record? This cannot be undone.')
+                ->action(function () {
+                    $latest = $this->latestReconciliation['latest'] ?? null;
+                    if ($latest instanceof Reconciliation) {
+                        $latest->delete();
+                        $this->mount();
+                        Notification::make()
+                            ->title('Reconciliation deleted')
+                            ->success()
+                            ->send();
+                    }
+                })
+                ->visible(fn () => $latest instanceof Reconciliation),
+
             Action::make('run_reconciliation')
                 ->label('Run Reconciliation')
                 ->icon('heroicon-o-play')

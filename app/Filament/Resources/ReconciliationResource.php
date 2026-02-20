@@ -100,6 +100,12 @@ class ReconciliationResource extends Resource
             ])
             ->recordActions([
                 Actions\ViewAction::make(),
+                Actions\DeleteAction::make(),
+            ])
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
+                ]),
             ]);
     }
 

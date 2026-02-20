@@ -97,6 +97,12 @@ class ExternalBankAccountResource extends Resource
             ->recordActions([
                 Actions\ViewAction::make(),
                 Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
+            ])
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
+                ]),
             ]);
     }
 
