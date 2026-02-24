@@ -31,9 +31,12 @@ class ImportExternalBank extends Page implements HasTable
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrow-down-tray';
     protected string $view = 'filament.pages.import-external-bank';
-    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?string $navigationLabel = 'Import Bank Transactions';
-    protected static ?int $navigationSort = 3;
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
     protected static ?string $title = 'Import External Bank Transactions';
 
     public ?array $data = [];
@@ -63,6 +66,7 @@ class ImportExternalBank extends Page implements HasTable
                                     ->label('Master Bank Balance')
                                     ->state(fn() => $this->masterBankBalance)
                                     ->icon('heroicon-o-banknotes')
+                                    ->helperText(fn() => 'External banks total: ' . $this->externalBanksTotal . '. Per reconciliation, Master Bank should equal this sum.')
                                     ->columnSpan(1),
 
                                 InfolistTextEntry::make('today_import_count')
@@ -755,15 +759,20 @@ class ImportExternalBank extends Page implements HasTable
         ]);
 
         $bank->increment('current_balance', $import->amount);
-        MasterAccount::where('account_type', 'master_bank')
-            ->first()
-                ?->increment('balance', $import->amount);
+        // Master Bank is updated by Transaction::process() -> processExternalImport()
+        // Do NOT increment here - that was double-posting (each import was applied twice)
     }
 
     public function getMasterBankBalanceProperty(): string
     {
         $balance = MasterAccount::where('account_type', 'master_bank')->value('balance') ?? 0;
         return '$' . number_format($balance, 2);
+    }
+
+    public function getExternalBanksTotalProperty(): string
+    {
+        $total = ExternalBankAccount::active()->sum('current_balance');
+        return '$' . number_format($total, 2);
     }
 
     public function getTodayImportCountProperty(): int

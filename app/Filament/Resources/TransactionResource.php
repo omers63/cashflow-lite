@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TransactionResource\Pages;
 use App\Models\Transaction;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Resources\Resource;
@@ -204,6 +205,54 @@ class TransactionResource extends Resource
                 Actions\ViewAction::make(),
                 Actions\EditAction::make()
                     ->visible(fn($record) => $record->status === 'pending'),
+
+                Actions\Action::make('assign_user')
+                    ->label('Assign to User Bank')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('gray')
+                    ->form([
+                        Forms\Components\Select::make('user_id')
+                            ->label('User Bank Account')
+                            ->options(User::active()->orderBy('name')->pluck('name', 'id'))
+                            ->searchable()
+                            ->required(),
+                    ])
+                    ->action(function (Transaction $record, array $data): void {
+                        DB::transaction(function () use ($record, $data): void {
+                            $user = User::find($data['user_id']);
+                            if ($user) {
+                                $user->creditBankAccount((float) $record->amount);
+                            }
+                            $record->update(['user_id' => $data['user_id']]);
+                        });
+                        \Filament\Notifications\Notification::make()
+                            ->title('Assignment updated')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && ! $record->user_id),
+
+                Actions\Action::make('clear_assignment')
+                    ->label('Clear Assignment')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading('Clear user assignment')
+                    ->modalDescription('This will unassign the transaction from the current user.')
+                    ->action(function (Transaction $record): void {
+                        DB::transaction(function () use ($record): void {
+                            $user = $record->user;
+                            if ($user) {
+                                $user->debitBankAccount((float) $record->amount);
+                            }
+                            $record->update(['user_id' => null]);
+                        });
+                        \Filament\Notifications\Notification::make()
+                            ->title('Assignment cleared')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && $record->user_id),
 
                 Actions\Action::make('reverse')
                     ->icon('heroicon-o-arrow-uturn-left')

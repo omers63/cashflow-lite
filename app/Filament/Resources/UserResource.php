@@ -261,8 +261,9 @@ class UserResource extends Resource
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('available_to_borrow')
                             ->label('Available to Borrow')
+                            ->state(fn ($record) => $record ? max(0, $record->fund_account_balance - $record->outstanding_loans) : 0)
                             ->money('USD')
-                            ->color(fn($state) => $state > 0 ? 'success' : 'danger'),
+                            ->color(fn ($state) => $state > 0 ? 'success' : 'danger'),
                     ])
                     ->columns(2),
 
@@ -288,7 +289,7 @@ class UserResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            \App\Filament\Resources\UserResource\RelationManagers\TransactionsRelationManager::class,
         ];
     }
 
