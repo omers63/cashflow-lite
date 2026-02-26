@@ -83,8 +83,8 @@ class EditUser extends EditRecord
                         $highestRow = $sheet->getHighestRow();
 
                         for ($row = 2; $row <= $highestRow; $row++) {
-                            $dateRaw = $sheet->getCellByColumnAndRow(1, $row)->getValue();
-                            $amountRaw = $sheet->getCellByColumnAndRow(2, $row)->getValue();
+                            $dateRaw = $sheet->getCell("A{$row}")->getValue();
+                            $amountRaw = $sheet->getCell("B{$row}")->getValue();
 
                             if (trim((string) $dateRaw) === '' || trim((string) $amountRaw) === '') {
                                 $skipped++;

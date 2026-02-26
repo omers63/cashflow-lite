@@ -151,6 +151,13 @@ class MasterAccountResource extends Resource
             ]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            \App\Filament\Resources\MasterAccountResource\RelationManagers\TransactionsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
