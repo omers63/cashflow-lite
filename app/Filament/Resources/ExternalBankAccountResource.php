@@ -106,6 +106,13 @@ class ExternalBankAccountResource extends Resource
             ]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            \App\Filament\Resources\ExternalBankAccountResource\RelationManagers\ImportsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
