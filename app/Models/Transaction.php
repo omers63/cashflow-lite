@@ -55,6 +55,101 @@ class Transaction extends Model
         return $this->hasOne(LoanPayment::class);
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (Transaction $transaction): void {
+            if ($transaction->status !== 'complete') {
+                return;
+            }
+            $transaction->reverseBalanceEffect();
+        });
+    }
+
+    /**
+     * Reverse the balance effect of this transaction (used when deleting a completed transaction).
+     */
+    public function reverseBalanceEffect(): void
+    {
+        DB::transaction(function () {
+            switch ($this->type) {
+                case 'external_import':
+                    $this->reverseExternalImport();
+                    break;
+                case 'master_to_user_bank':
+                    $this->reverseMasterToUserBank();
+                    break;
+                case 'contribution':
+                    $this->reverseContribution();
+                    break;
+                case 'loan_repayment':
+                    $this->reverseLoanRepayment();
+                    break;
+                case 'loan_disbursement':
+                    $this->reverseLoanDisbursement();
+                    break;
+                case 'adjustment':
+                    // No balance effect to reverse
+                    break;
+            }
+        });
+    }
+
+    private function reverseExternalImport(): void
+    {
+        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
+        if ($masterBank) {
+            $masterBank->decrement('balance', $this->amount);
+        }
+    }
+
+    private function reverseMasterToUserBank(): void
+    {
+        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
+        if ($masterBank) {
+            $masterBank->increment('balance', $this->amount);
+        }
+        if ($this->user) {
+            $this->user->debitBankAccount($this->amount);
+        }
+    }
+
+    private function reverseContribution(): void
+    {
+        if ($this->user) {
+            $this->user->creditBankAccount($this->amount);
+            $this->user->debitFundAccount($this->amount);
+        }
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if ($masterFund) {
+            $masterFund->decrement('balance', $this->amount);
+        }
+    }
+
+    private function reverseLoanRepayment(): void
+    {
+        if ($this->user) {
+            $this->user->creditBankAccount($this->amount);
+            $this->user->debitFundAccount($this->amount);
+        }
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if ($masterFund) {
+            $masterFund->decrement('balance', $this->amount);
+        }
+        // Note: Loan outstanding_balance is not auto-reversed; reconcile manually if needed.
+    }
+
+    private function reverseLoanDisbursement(): void
+    {
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if ($masterFund) {
+            $masterFund->increment('balance', $this->amount);
+        }
+        if ($this->user) {
+            $this->user->debitBankAccount($this->amount);
+            $this->user->updateOutstandingLoans();
+        }
+    }
+
     // Business Logic
 
     /**

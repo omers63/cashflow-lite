@@ -119,6 +119,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Debit user fund account (e.g. when reversing a contribution/repayment)
+     */
+    public function debitFundAccount(float $amount): void
+    {
+        $this->decrement('fund_account_balance', $amount);
+    }
+
+    /**
      * Update outstanding loans total
      */
     public function updateOutstandingLoans(): void

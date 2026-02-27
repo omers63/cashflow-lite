@@ -3,10 +3,11 @@
 namespace App\Filament\Resources\MasterAccountResource\RelationManagers;
 
 use App\Models\Transaction;
+use Filament\Actions;
+use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Forms;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
@@ -108,7 +109,17 @@ class TransactionsRelationManager extends RelationManager
                     }),
             ])
             ->recordActions([])
-            ->toolbarActions([])
+            ->selectable(true)
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make()
+                        ->authorize(fn () => true)
+                        ->after(function (): void {
+                            $this->getOwnerRecord()->refresh();
+                            $this->dispatch('refreshMasterAccountRecord');
+                        }),
+                ]),
+            ])
             ->paginated([10, 25, 50]);
     }
 
@@ -116,7 +127,7 @@ class TransactionsRelationManager extends RelationManager
     {
         $owner = $this->getOwnerRecord();
 
-        if (! $owner) {
+        if (!$owner) {
             return null;
         }
 

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\MasterAccountResource\Pages;
 use App\Filament\Resources\MasterAccountResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
+use Livewire\Attributes\On;
 
 class ViewMasterAccount extends ViewRecord
 {
@@ -12,8 +13,12 @@ class ViewMasterAccount extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        return [
-            Actions\EditAction::make(),
-        ];
+        return [];
+    }
+
+    #[On('refreshMasterAccountRecord')]
+    public function refreshMasterAccountRecord(): void
+    {
+        $this->record->refresh();
     }
 }
