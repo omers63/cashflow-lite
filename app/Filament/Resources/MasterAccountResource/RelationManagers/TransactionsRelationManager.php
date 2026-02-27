@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MasterAccountResource\RelationManagers;
 
 use App\Models\Transaction;
+use App\Models\User;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -10,6 +11,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Facades\DB;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -62,6 +64,11 @@ class TransactionsRelationManager extends RelationManager
                             ->label('Total'),
                     ]),
 
+                Tables\Columns\TextColumn::make('user.name')
+                    ->label('Assigned to')
+                    ->placeholder('—')
+                    ->visible(fn (): bool => $this->getOwnerRecord()->account_type === 'master_bank'),
+
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
                     ->colors([
@@ -108,12 +115,75 @@ class TransactionsRelationManager extends RelationManager
                             ->when($data['to'], fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
                     }),
             ])
-            ->recordActions([])
+            ->recordActions([
+                Actions\Action::make('assign_user')
+                    ->label('Assign to User Bank')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('gray')
+                    ->schema([
+                        Forms\Components\Select::make('user_id')
+                            ->label('User Bank Account')
+                            ->options(fn () => User::active()->orderBy('name')->pluck('name', 'id'))
+                            ->searchable()
+                            ->required(),
+                    ])
+                    ->action(function (Transaction $record, array $data): void {
+                        DB::transaction(function () use ($record, $data): void {
+                            $user = User::find($data['user_id']);
+                            if ($user) {
+                                $user->creditBankAccount((float) $record->amount);
+                            }
+                            $record->update(['user_id' => $data['user_id']]);
+                        });
+
+                        \Filament\Notifications\Notification::make()
+                            ->title('Assigned to user bank')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
+                        && $record->type === 'external_import'
+                        && ! $record->user_id),
+
+                Actions\Action::make('reassign_user')
+                    ->label('Reassign to User Bank')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('gray')
+                    ->schema([
+                        Forms\Components\Select::make('user_id')
+                            ->label('User Bank Account')
+                            ->options(fn () => User::active()->orderBy('name')->pluck('name', 'id'))
+                            ->searchable()
+                            ->required()
+                            ->default(fn (Transaction $record) => $record->user_id),
+                    ])
+                    ->action(function (Transaction $record, array $data): void {
+                        DB::transaction(function () use ($record, $data): void {
+                            $oldUser = $record->user;
+                            if ($oldUser) {
+                                $oldUser->debitBankAccount((float) $record->amount);
+                            }
+                            $newUser = User::find($data['user_id']);
+                            if ($newUser) {
+                                $newUser->creditBankAccount((float) $record->amount);
+                            }
+                            $record->update(['user_id' => $data['user_id']]);
+                        });
+
+                        \Filament\Notifications\Notification::make()
+                            ->title('Reassigned to user bank')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
+                        && $record->type === 'external_import'
+                        && (bool) $record->user_id),
+            ])
             ->selectable(true)
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make()
-                        ->authorize(fn () => true)
+                        ->authorize(fn() => true)
                         ->after(function (): void {
                             $this->getOwnerRecord()->refresh();
                             $this->dispatch('refreshMasterAccountRecord');
