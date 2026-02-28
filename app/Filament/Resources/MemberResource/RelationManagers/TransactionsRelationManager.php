@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Resources\UserResource\RelationManagers;
+namespace App\Filament\Resources\MemberResource\RelationManagers;
 
 use App\Filament\Resources\TransactionResource;
 use App\Models\Transaction;
@@ -45,15 +45,15 @@ class TransactionsRelationManager extends RelationManager
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
                     ])
-                    ->formatStateUsing(fn (?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
+                    ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
 
                 Tables\Columns\TextColumn::make('from_account')
                     ->limit(20)
-                    ->tooltip(fn ($record) => $record->from_account),
+                    ->tooltip(fn($record) => $record->from_account),
 
                 Tables\Columns\TextColumn::make('to_account')
                     ->limit(20)
-                    ->tooltip(fn ($record) => $record->to_account),
+                    ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->money('USD')
@@ -98,19 +98,20 @@ class TransactionsRelationManager extends RelationManager
 
                 Tables\Filters\SelectFilter::make('from_account_exact')
                     ->label('From Account (exact)')
-                    ->options(fn () => Transaction::query()
-                        ->whereNotNull('from_account')
-                        ->distinct()
-                        ->orderBy('from_account')
-                        ->pluck('from_account', 'from_account')
-                        ->toArray()
+                    ->options(
+                        fn() => Transaction::query()
+                            ->whereNotNull('from_account')
+                            ->distinct()
+                            ->orderBy('from_account')
+                            ->pluck('from_account', 'from_account')
+                            ->toArray()
                     )
                     ->multiple()
                     ->query(function ($query, array $data) {
                         $values = $data['values'] ?? [];
 
                         return $query
-                            ->when($values, fn ($q, $v) => $q->whereIn('from_account', $v));
+                            ->when($values, fn($q, $v) => $q->whereIn('from_account', $v));
                     }),
 
                 Tables\Filters\Filter::make('from_account')
@@ -124,7 +125,7 @@ class TransactionsRelationManager extends RelationManager
                         $value = $data['value'] ?? null;
 
                         return $query
-                            ->when($value, fn ($q, $v) => $q->where('from_account', 'like', '%' . $v . '%'));
+                            ->when($value, fn($q, $v) => $q->where('from_account', 'like', '%' . $v . '%'));
                     }),
 
                 Tables\Filters\Filter::make('transaction_date')
@@ -137,23 +138,24 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->query(function ($query, array $data) {
                         return $query
-                            ->when($data['from'], fn ($q, $date) => $q->whereDate('transaction_date', '>=', $date))
-                            ->when($data['to'], fn ($q, $date) => $q->whereDate('transaction_date', '<=', $date));
+                            ->when($data['from'], fn($q, $date) => $q->whereDate('transaction_date', '>=', $date))
+                            ->when($data['to'], fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
                     }),
             ])
             ->recordActions([
                 Actions\ViewAction::make()
-                    ->url(fn ($record) => TransactionResource::getUrl('view', ['record' => $record])),
+                    ->url(fn($record) => TransactionResource::getUrl('view', ['record' => $record])),
                 Actions\Action::make('unassign')
                     ->label('Unassign from user')
                     ->icon('heroicon-o-user-minus')
                     ->color('gray')
                     ->requiresConfirmation()
                     ->modalHeading('Unassign transaction from user')
-                    ->modalDescription('This transaction will be unassigned from this user. The record is not deleted. For external imports, the user\'s bank balance will be reduced by the transaction amount.')
+                    ->modalDescription('This transaction will be unassigned from this member\'s user. The record is not deleted. For external imports, the member\'s bank balance will be reduced by the transaction amount.')
                     ->action(function (Transaction $record): void {
                         $owner = $this->getOwnerRecord();
-                        if ((int) $record->user_id !== (int) $owner->getKey()) {
+                        $ownerUserId = (int) $owner->user_id;
+                        if ((int) $record->user_id !== $ownerUserId) {
                             return;
                         }
                         DB::transaction(function () use ($record): void {
@@ -163,15 +165,15 @@ class TransactionsRelationManager extends RelationManager
                             $record->update(['user_id' => null]);
                         });
                         $owner->refresh();
-                        $this->dispatch('refreshUserRecord', userId: $owner->getKey());
+                        $this->dispatch('refreshMemberRecord', memberId: $owner->getKey());
                         Notification::make()
                             ->title('Transaction unassigned')
                             ->success()
                             ->send();
                     })
-                    ->visible(fn (Transaction $record) => (int) $record->user_id === (int) $this->getOwnerRecord()?->getKey()),
+                    ->visible(fn(Transaction $record) => (int) $record->user_id === (int) $this->getOwnerRecord()?->user_id),
             ])
-            ->bulkActions([
+            ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('unassign_from_user')
                         ->label('Unassign from user')
@@ -179,13 +181,14 @@ class TransactionsRelationManager extends RelationManager
                         ->color('gray')
                         ->requiresConfirmation()
                         ->modalHeading('Unassign transactions from user')
-                        ->modalDescription('Selected transactions will be unassigned from this user (user_id cleared). The transaction records are not deleted. For external imports, the user\'s bank balance will be reduced by the unassigned amounts.')
+                        ->modalDescription('Selected transactions will be unassigned from this member\'s user. The transaction records are not deleted. For external imports, the member\'s bank balance will be reduced by the unassigned amounts.')
                         ->action(function (Collection $records): void {
                             $owner = $this->getOwnerRecord();
+                            $ownerUserId = (int) $owner->user_id;
                             $count = 0;
-                            DB::transaction(function () use ($records, $owner, &$count): void {
+                            DB::transaction(function () use ($records, $ownerUserId, &$count): void {
                                 foreach ($records as $record) {
-                                    if ((int) $record->user_id !== (int) $owner->getKey()) {
+                                    if ((int) $record->user_id !== $ownerUserId) {
                                         continue;
                                     }
                                     if ($record->type === 'external_import' && $record->user) {
@@ -196,7 +199,7 @@ class TransactionsRelationManager extends RelationManager
                                 }
                             });
                             $owner->refresh();
-                            $this->dispatch('refreshUserRecord', userId: $owner->getKey());
+                            $this->dispatch('refreshMemberRecord', memberId: $owner->getKey());
                             Notification::make()
                                 ->title('Unassigned from user')
                                 ->body($count . ' transaction(s) unassigned.')

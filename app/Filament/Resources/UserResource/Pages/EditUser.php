@@ -29,7 +29,6 @@ class EditUser extends EditRecord
         } else {
             $this->record->refresh();
         }
-        $this->refreshFormData(['bank_account_balance', 'fund_account_balance', 'outstanding_loans']);
     }
 
     protected function getHeaderActions(): array
@@ -237,25 +236,6 @@ class EditUser extends EditRecord
                     Notification::make()
                         ->title('Import complete')
                         ->body("{$imported} transaction(s) imported" . ($skipped > 0 ? ", {$skipped} skipped" : ''))
-                        ->success()
-                        ->send();
-                }),
-
-            Actions\Action::make('recalculate_bank_balance')
-                ->label('Recalculate Bank Balance')
-                ->icon('heroicon-o-calculator')
-                ->color('gray')
-                ->requiresConfirmation()
-                ->modalHeading('Recalculate bank balance from transactions')
-                ->modalDescription('This will set User Bank Account Balance to the sum of transaction effects (credits minus debits) for this user. Use when the balance is out of sync.')
-                ->action(function (): void {
-                    $user = $this->record;
-                    $balance = $user->recalculateBankAccountBalanceFromTransactions();
-                    $user->refresh();
-                    $this->refreshFormData(['bank_account_balance']);
-                    Notification::make()
-                        ->title('Bank balance recalculated')
-                        ->body('New balance: $' . number_format($balance, 2))
                         ->success()
                         ->send();
                 }),

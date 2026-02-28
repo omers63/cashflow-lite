@@ -4,9 +4,10 @@ namespace App\Filament\Pages;
 
 use App\Filament\Resources\ExternalBankAccountResource;
 use App\Filament\Resources\MasterAccountResource;
+use App\Filament\Resources\MemberResource;
 use App\Filament\Resources\UserResource;
 use App\Models\MasterAccount;
-use App\Models\User;
+use App\Models\Member;
 use Filament\Actions;
 use Filament\Pages\Page;
 use Filament\Tables;
@@ -49,8 +50,13 @@ class AccountManagement extends Page implements HasTable
                 ->icon('heroicon-o-building-library')
                 ->url(ExternalBankAccountResource::getUrl('index')),
 
+            Actions\Action::make('members')
+                ->label('Members')
+                ->icon('heroicon-o-user-group')
+                ->url(MemberResource::getUrl('index')),
+
             Actions\Action::make('users')
-                ->label('User Management')
+                ->label('Users')
                 ->icon('heroicon-o-users')
                 ->url(UserResource::getUrl('index')),
         ];
@@ -69,14 +75,15 @@ class AccountManagement extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn () => User::query()->orderBy('name'))
+            ->query(fn () => Member::query()->with('user')->orderBy('id'))
             ->columns([
-                Tables\Columns\TextColumn::make('user_code')
-                    ->label('User ID')
+                Tables\Columns\TextColumn::make('user.user_code')
+                    ->label('User Code')
                     ->searchable()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('name')
+                Tables\Columns\TextColumn::make('user.name')
+                    ->label('Name')
                     ->searchable()
                     ->sortable(),
 
@@ -108,13 +115,13 @@ class AccountManagement extends Page implements HasTable
                 Tables\Columns\TextColumn::make('available_to_borrow')
                     ->label('Available to Borrow')
                     ->money('USD')
-                    ->state(fn(User $record) => $record->available_to_borrow),
+                    ->getStateUsing(fn (Member $record) => $record->available_to_borrow),
             ])
             ->recordActions([
                 Actions\Action::make('edit')
                     ->label('Manage')
                     ->icon('heroicon-o-pencil-square')
-                    ->url(fn(User $record) => UserResource::getUrl('edit', ['record' => $record])),
+                    ->url(fn (Member $record) => MemberResource::getUrl('edit', ['record' => $record])),
             ])
             ->striped()
             ->paginated([10, 25, 50]);

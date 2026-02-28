@@ -20,9 +20,6 @@ class User extends Authenticatable
         'password',
         'phone',
         'status',
-        'bank_account_balance',
-        'fund_account_balance',
-        'outstanding_loans',
     ];
 
     protected $hidden = [
@@ -33,12 +30,20 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
-        'bank_account_balance' => 'decimal:2',
-        'fund_account_balance' => 'decimal:2',
-        'outstanding_loans' => 'decimal:2',
+    ];
+
+    protected $appends = [
+        'bank_account_balance',
+        'fund_account_balance',
+        'outstanding_loans',
     ];
 
     // Relationships
+    public function member(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Member::class);
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);
@@ -64,93 +69,86 @@ class User extends Authenticatable
         return $this->hasMany(Transaction::class, 'approved_by');
     }
 
-    // Business Logic Methods
+    // Financials: delegated to Member (only members have balances). Accessors for display/form compatibility.
 
-    /**
-     * Calculate available amount to borrow
-     */
+    public function getBankAccountBalanceAttribute(): float
+    {
+        return $this->member ? (float) $this->member->bank_account_balance : 0.0;
+    }
+
+    public function getFundAccountBalanceAttribute(): float
+    {
+        return $this->member ? (float) $this->member->fund_account_balance : 0.0;
+    }
+
+    public function getOutstandingLoansAttribute(): float
+    {
+        return $this->member ? (float) $this->member->outstanding_loans : 0.0;
+    }
+
     public function getAvailableToBorrowAttribute(): float
     {
-        return max(0, $this->fund_account_balance - $this->outstanding_loans);
+        return $this->member ? $this->member->available_to_borrow : 0.0;
     }
 
-    /**
-     * Check if user has sufficient bank balance
-     */
     public function hasSufficientBankBalance(float $amount): bool
     {
-        return $this->bank_account_balance >= $amount;
+        if (! $this->member) {
+            return false;
+        }
+        return $this->member->hasSufficientBankBalance($amount);
     }
 
-    /**
-     * Check if user has sufficient fund balance for loan
-     */
     public function canBorrow(float $amount): bool
     {
-        return $this->available_to_borrow >= $amount;
+        return $this->member && $this->member->canBorrow($amount);
     }
 
-    /**
-     * Debit user bank account
-     */
     public function debitBankAccount(float $amount): void
     {
-        if (!$this->hasSufficientBankBalance($amount)) {
-            throw new \Exception("Insufficient bank account balance");
+        if (! $this->member) {
+            throw new \RuntimeException('User must be a member to perform bank operations.');
         }
-
-        $this->decrement('bank_account_balance', $amount);
+        $this->member->debitBankAccount($amount);
     }
 
-    /**
-     * Credit user bank account
-     */
     public function creditBankAccount(float $amount): void
     {
-        $this->increment('bank_account_balance', $amount);
+        if (! $this->member) {
+            throw new \RuntimeException('User must be a member to perform bank operations.');
+        }
+        $this->member->creditBankAccount($amount);
     }
 
-    /**
-     * Credit user fund account (contributions/repayments)
-     */
     public function creditFundAccount(float $amount): void
     {
-        $this->increment('fund_account_balance', $amount);
+        if (! $this->member) {
+            throw new \RuntimeException('User must be a member to perform fund operations.');
+        }
+        $this->member->creditFundAccount($amount);
     }
 
-    /**
-     * Debit user fund account (e.g. when reversing a contribution/repayment)
-     */
     public function debitFundAccount(float $amount): void
     {
-        $this->decrement('fund_account_balance', $amount);
+        if (! $this->member) {
+            throw new \RuntimeException('User must be a member to perform fund operations.');
+        }
+        $this->member->debitFundAccount($amount);
     }
 
-    /**
-     * Update outstanding loans total
-     */
     public function updateOutstandingLoans(): void
     {
-        $total = $this->activeLoans()->sum('outstanding_balance');
-        $this->update(['outstanding_loans' => $total]);
+        if ($this->member) {
+            $this->member->updateOutstandingLoans();
+        }
     }
 
-    /**
-     * Recalculate bank_account_balance from this user's transactions (credits minus debits).
-     * Use when the stored balance is out of sync (e.g. after data fixes or imports).
-     */
     public function recalculateBankAccountBalanceFromTransactions(): float
     {
-        $credits = $this->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import'])
-            ->sum('amount');
-        $debits = $this->transactions()
-            ->where('type', 'contribution')
-            ->sum('amount');
-        $balance = (float) $credits - (float) $debits;
-        $this->update(['bank_account_balance' => $balance]);
-
-        return $balance;
+        if (! $this->member) {
+            throw new \RuntimeException('User must be a member to recalculate bank balance.');
+        }
+        return $this->member->recalculateBankAccountBalanceFromTransactions();
     }
 
     /**
@@ -246,9 +244,22 @@ class User extends Authenticatable
         return $query->where('status', 'active');
     }
 
+    /**
+     * Join members so that bank_account_balance, fund_account_balance, outstanding_loans
+     * are available for listing/sorting/summarizing (financials live on Member).
+     */
+    public function scopeWithMemberBalances($query)
+    {
+        return $query->leftJoin('members', 'users.id', '=', 'members.user_id')
+            ->select('users.*')
+            ->selectRaw('COALESCE(members.bank_account_balance, 0) as bank_account_balance')
+            ->selectRaw('COALESCE(members.fund_account_balance, 0) as fund_account_balance')
+            ->selectRaw('COALESCE(members.outstanding_loans, 0) as outstanding_loans');
+    }
+
     public function scopeWithBalances($query)
     {
-        return $query->select('*')
-            ->selectRaw('(fund_account_balance - outstanding_loans) as available_to_borrow');
+        return $query->withMemberBalances()
+            ->selectRaw('(COALESCE(members.fund_account_balance, 0) - COALESCE(members.outstanding_loans, 0)) as available_to_borrow');
     }
 }

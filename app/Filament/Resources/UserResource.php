@@ -65,53 +65,6 @@ class UserResource extends Resource
                             ->maxLength(255),
                     ])
                     ->columns(2),
-
-                Components\Section::make('Account Balances')
-                    ->schema([
-                        Forms\Components\TextInput::make('bank_account_balance')
-                            ->label('User Bank Account Balance')
-                            ->numeric()
-                            ->default(0)
-                            ->prefix('$')
-                            ->step(0.01)
-                            ->disabled(fn (string $context) => $context === 'edit')
-                            ->dehydrated(fn (string $context) => $context !== 'edit')
-                            ->helperText(fn (string $context) => $context === 'edit'
-                                ? 'Read-only in edit mode. Balances change via transactions.'
-                                : 'Editable for balance adjustments and corrections'),
-
-                        Forms\Components\TextInput::make('fund_account_balance')
-                            ->label('User Fund Account Balance')
-                            ->numeric()
-                            ->default(0)
-                            ->prefix('$')
-                            ->step(0.01)
-                            ->disabled(fn (string $context) => $context === 'edit')
-                            ->dehydrated(fn (string $context) => $context !== 'edit')
-                            ->helperText(fn (string $context) => $context === 'edit'
-                                ? 'Read-only in edit mode. Balances change via transactions.'
-                                : 'Editable for balance adjustments and corrections'),
-
-                        Forms\Components\TextInput::make('outstanding_loans')
-                            ->label('Outstanding Loans')
-                            ->numeric()
-                            ->default(0)
-                            ->prefix('$')
-                            ->step(0.01)
-                            ->disabled(),
-
-                        Forms\Components\TextInput::make('available_to_borrow')
-                            ->label('Available to Borrow')
-                            ->prefix('$')
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->formatStateUsing(fn(?User $record) => $record
-                                ? number_format($record->available_to_borrow, 2)
-                                : '0.00')
-                            ->visible(fn(string $context) => $context === 'edit'),
-                    ])
-                    ->columns(2)
-                    ->collapsible(),
             ]);
     }
 
@@ -132,43 +85,6 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
                     ->copyable(),
-
-                Tables\Columns\TextColumn::make('bank_account_balance')
-                    ->label('Bank Account')
-                    ->money('USD')
-                    ->sortable()
-                    ->summarize([
-                        Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD')
-                            ->label('Total'),
-                    ]),
-
-                Tables\Columns\TextColumn::make('fund_account_balance')
-                    ->label('Fund Account')
-                    ->money('USD')
-                    ->sortable()
-                    ->summarize([
-                        Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD')
-                            ->label('Total'),
-                    ]),
-
-                Tables\Columns\TextColumn::make('outstanding_loans')
-                    ->label('Loans')
-                    ->money('USD')
-                    ->sortable()
-                    ->summarize([
-                        Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD')
-                            ->label('Total'),
-                    ]),
-
-                Tables\Columns\TextColumn::make('available_to_borrow')
-                    ->label('Available')
-                    ->money('USD')
-                    ->sortable(query: function ($query, $direction) {
-                        $query->orderByRaw("(fund_account_balance - outstanding_loans) {$direction}");
-                    }),
 
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
@@ -191,14 +107,6 @@ class UserResource extends Resource
                         'inactive' => 'Inactive',
                         'suspended' => 'Suspended',
                     ]),
-
-                Tables\Filters\Filter::make('has_loans')
-                    ->label('Has Active Loans')
-                    ->query(fn($query) => $query->where('outstanding_loans', '>', 0)),
-
-                Tables\Filters\Filter::make('can_borrow')
-                    ->label('Can Borrow')
-                    ->query(fn($query) => $query->whereRaw('fund_account_balance > outstanding_loans')),
             ])
             ->recordActions([
                 Actions\ViewAction::make(),
@@ -256,49 +164,12 @@ class UserResource extends Resource
                     ])
                     ->columns(2),
 
-                Components\Section::make('Account Balances')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('bank_account_balance')
-                            ->label('Bank Account')
-                            ->money('USD'),
-                        Infolists\Components\TextEntry::make('fund_account_balance')
-                            ->label('Fund Account')
-                            ->money('USD'),
-                        Infolists\Components\TextEntry::make('outstanding_loans')
-                            ->label('Outstanding Loans')
-                            ->money('USD'),
-                        Infolists\Components\TextEntry::make('available_to_borrow')
-                            ->label('Available to Borrow')
-                            ->state(fn ($record) => $record ? max(0, $record->fund_account_balance - $record->outstanding_loans) : 0)
-                            ->money('USD')
-                            ->color(fn ($state) => $state > 0 ? 'success' : 'danger'),
-                    ])
-                    ->columns(2),
-
-                Components\Section::make('Activity Summary')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('total_contributions')
-                            ->label('Total Contributions')
-                            ->money('USD'),
-                        Infolists\Components\TextEntry::make('total_loan_repayments')
-                            ->label('Total Loan Repayments')
-                            ->money('USD'),
-                        Infolists\Components\TextEntry::make('activeLoans')
-                            ->label('Active Loans')
-                            ->state(fn($record) => $record->activeLoans()->count()),
-                        Infolists\Components\TextEntry::make('transactions')
-                            ->label('Total Transactions')
-                            ->state(fn($record) => $record->transactions()->count()),
-                    ])
-                    ->columns(2),
             ]);
     }
 
     public static function getRelations(): array
     {
-        return [
-            \App\Filament\Resources\UserResource\RelationManagers\TransactionsRelationManager::class,
-        ];
+        return [];
     }
 
     public static function getPages(): array

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\MasterAccount;
+use App\Models\Member;
 use App\Models\User;
 use App\Models\Loan;
 use App\Models\Transaction;
@@ -87,7 +88,7 @@ class ReconciliationService
      */
     protected function checkUserBanksTotal(): void
     {
-        $userBanksTotal = User::active()->sum('bank_account_balance');
+        $userBanksTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('bank_account_balance');
         $masterBank = MasterAccount::getMasterBank();
         $masterFund = MasterAccount::getMasterFund();
         
@@ -112,7 +113,7 @@ class ReconciliationService
     protected function checkMasterFundBalance(): void
     {
         $masterFund = MasterAccount::getMasterFund();
-        $userFundsTotal = User::active()->sum('fund_account_balance');
+        $userFundsTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('fund_account_balance');
         $outstandingLoansTotal = Loan::active()->sum('outstanding_balance');
         
         $expected = $userFundsTotal - $outstandingLoansTotal;
@@ -135,7 +136,7 @@ class ReconciliationService
      */
     protected function checkUserFundAccountsTotal(): void
     {
-        $userFundsTotal = User::active()->sum('fund_account_balance');
+        $userFundsTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('fund_account_balance');
         
         // Calculate from transactions
         $contributions = Transaction::complete()
@@ -165,7 +166,7 @@ class ReconciliationService
      */
     protected function checkTotalOutstandingLoans(): void
     {
-        $userOutstandingTotal = User::active()->sum('outstanding_loans');
+        $userOutstandingTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('outstanding_loans');
         $loanOutstandingTotal = Loan::active()->sum('outstanding_balance');
         
         $variance = $userOutstandingTotal - $loanOutstandingTotal;
@@ -188,8 +189,8 @@ class ReconciliationService
     protected function checkFundBalanceEquation(): void
     {
         $masterFund = MasterAccount::getMasterFund();
-        $userFundsTotal = User::active()->sum('fund_account_balance');
-        $outstandingLoansTotal = User::active()->sum('outstanding_loans');
+        $userFundsTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('fund_account_balance');
+        $outstandingLoansTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('outstanding_loans');
         
         $expected = $userFundsTotal - $outstandingLoansTotal;
         $variance = $masterFund->balance - $expected;
@@ -212,7 +213,7 @@ class ReconciliationService
     protected function checkCashFlowBalance(): void
     {
         $masterBank = MasterAccount::getMasterBank();
-        $userBanksTotal = User::active()->sum('bank_account_balance');
+        $userBanksTotal = Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('bank_account_balance');
         $masterFund = MasterAccount::getMasterFund();
         
         $expected = $userBanksTotal + $masterFund->balance;
@@ -297,8 +298,8 @@ class ReconciliationService
             'master_bank' => $masterBank->balance,
             'master_fund' => $masterFund->balance,
             'external_banks_total' => ExternalBankAccount::active()->sum('current_balance'),
-            'user_banks_total' => User::active()->sum('bank_account_balance'),
-            'user_funds_total' => User::active()->sum('fund_account_balance'),
+            'user_banks_total' => Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('bank_account_balance'),
+            'user_funds_total' => Member::whereHas('user', fn ($q) => $q->where('status', 'active'))->sum('fund_account_balance'),
             'outstanding_loans_total' => Loan::active()->sum('outstanding_balance'),
             'active_users' => User::active()->count(),
             'active_loans' => Loan::active()->count(),
