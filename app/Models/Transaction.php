@@ -100,6 +100,10 @@ class Transaction extends Model
         if ($masterBank) {
             $masterBank->decrement('balance', $this->amount);
         }
+        // Reverse assignment: when this external_import was assigned to a user, we credited their bank
+        if ($this->user_id && $this->user) {
+            $this->user->debitBankAccount((float) $this->amount);
+        }
     }
 
     private function reverseMasterToUserBank(): void
@@ -153,14 +157,16 @@ class Transaction extends Model
     // Business Logic
 
     /**
-     * Generate unique transaction ID
+     * Generate unique transaction ID. Uses date, daily sequence, and random suffix to avoid
+     * collisions when multiple transactions are created in the same second or same DB transaction.
      */
     public static function generateTransactionId(string $prefix = 'GEN'): string
     {
         $date = now()->format('Ymd');
         $count = static::whereDate('created_at', now())->count() + 1;
-        
-        return sprintf('%s-%s-%04d', $prefix, $date, $count);
+        $unique = strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+
+        return sprintf('%s-%s-%04d-%s', $prefix, $date, $count, $unique);
     }
 
     /**

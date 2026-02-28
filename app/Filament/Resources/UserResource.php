@@ -74,7 +74,11 @@ class UserResource extends Resource
                             ->default(0)
                             ->prefix('$')
                             ->step(0.01)
-                            ->helperText('Editable for balance adjustments and corrections'),
+                            ->disabled(fn (string $context) => $context === 'edit')
+                            ->dehydrated(fn (string $context) => $context !== 'edit')
+                            ->helperText(fn (string $context) => $context === 'edit'
+                                ? 'Read-only in edit mode. Balances change via transactions.'
+                                : 'Editable for balance adjustments and corrections'),
 
                         Forms\Components\TextInput::make('fund_account_balance')
                             ->label('User Fund Account Balance')
@@ -82,7 +86,11 @@ class UserResource extends Resource
                             ->default(0)
                             ->prefix('$')
                             ->step(0.01)
-                            ->helperText('Editable for balance adjustments and corrections'),
+                            ->disabled(fn (string $context) => $context === 'edit')
+                            ->dehydrated(fn (string $context) => $context !== 'edit')
+                            ->helperText(fn (string $context) => $context === 'edit'
+                                ? 'Read-only in edit mode. Balances change via transactions.'
+                                : 'Editable for balance adjustments and corrections'),
 
                         Forms\Components\TextInput::make('outstanding_loans')
                             ->label('Outstanding Loans')

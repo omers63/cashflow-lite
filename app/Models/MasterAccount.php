@@ -8,6 +8,30 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MasterAccount extends Model
 {
+    /**
+     * Recalculate balance from transactions and update the stored balance.
+     * Use when the stored balance is out of sync (e.g. after data fixes or when there are no transactions but balance is non-zero).
+     */
+    public function recalculateBalanceFromTransactions(): float
+    {
+        $query = Transaction::query();
+
+        if ($this->account_type === 'master_bank') {
+            $credits = (float) (clone $query)->where('type', 'external_import')->sum('amount');
+            $debits = (float) (clone $query)->where('type', 'master_to_user_bank')->sum('amount');
+            $balance = $credits - $debits;
+        } elseif ($this->account_type === 'master_fund') {
+            $credits = (float) (clone $query)->whereIn('type', ['contribution', 'loan_repayment'])->sum('amount');
+            $debits = (float) (clone $query)->where('type', 'loan_disbursement')->sum('amount');
+            $balance = $credits - $debits;
+        } else {
+            return (float) $this->balance;
+        }
+
+        $this->update(['balance' => $balance]);
+        return $balance;
+    }
+
     use HasFactory;
 
     protected $fillable = [

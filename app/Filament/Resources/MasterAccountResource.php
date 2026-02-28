@@ -107,6 +107,7 @@ class MasterAccountResource extends Resource
             ])
             ->recordActions([
                 Actions\ViewAction::make(),
+                Actions\EditAction::make(),
             ])
             ->defaultSort('account_type')
             ->striped();
@@ -162,15 +163,11 @@ class MasterAccountResource extends Resource
         return [
             'index' => Pages\ListMasterAccounts::route('/'),
             'view' => Pages\ViewMasterAccount::route('/{record}'),
+            'edit' => Pages\EditMasterAccount::route('/{record}/edit'),
         ];
     }
 
     public static function canCreate(): bool
-    {
-        return false;
-    }
-
-    public static function canEdit($record): bool
     {
         return false;
     }

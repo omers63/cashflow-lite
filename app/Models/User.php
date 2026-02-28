@@ -136,6 +136,24 @@ class User extends Authenticatable
     }
 
     /**
+     * Recalculate bank_account_balance from this user's transactions (credits minus debits).
+     * Use when the stored balance is out of sync (e.g. after data fixes or imports).
+     */
+    public function recalculateBankAccountBalanceFromTransactions(): float
+    {
+        $credits = $this->transactions()
+            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import'])
+            ->sum('amount');
+        $debits = $this->transactions()
+            ->where('type', 'contribution')
+            ->sum('amount');
+        $balance = (float) $credits - (float) $debits;
+        $this->update(['bank_account_balance' => $balance]);
+
+        return $balance;
+    }
+
+    /**
      * Get transaction history for a date range
      */
     public function getTransactionHistory($startDate, $endDate)

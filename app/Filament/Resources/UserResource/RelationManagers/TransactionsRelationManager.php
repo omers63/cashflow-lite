@@ -6,9 +6,12 @@ use App\Filament\Resources\TransactionResource;
 use App\Models\Transaction;
 use Filament\Actions;
 use Filament\Forms;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -141,10 +144,66 @@ class TransactionsRelationManager extends RelationManager
             ->recordActions([
                 Actions\ViewAction::make()
                     ->url(fn ($record) => TransactionResource::getUrl('view', ['record' => $record])),
+                Actions\Action::make('unassign')
+                    ->label('Unassign from user')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading('Unassign transaction from user')
+                    ->modalDescription('This transaction will be unassigned from this user. The record is not deleted. For external imports, the user\'s bank balance will be reduced by the transaction amount.')
+                    ->action(function (Transaction $record): void {
+                        $owner = $this->getOwnerRecord();
+                        if ((int) $record->user_id !== (int) $owner->getKey()) {
+                            return;
+                        }
+                        DB::transaction(function () use ($record): void {
+                            if ($record->type === 'external_import' && $record->user) {
+                                $record->user->debitBankAccount((float) $record->amount);
+                            }
+                            $record->update(['user_id' => null]);
+                        });
+                        $owner->refresh();
+                        $this->dispatch('refreshUserRecord', userId: $owner->getKey());
+                        Notification::make()
+                            ->title('Transaction unassigned')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn (Transaction $record) => (int) $record->user_id === (int) $this->getOwnerRecord()?->getKey()),
             ])
             ->bulkActions([
                 Actions\BulkActionGroup::make([
-                    Actions\DeleteBulkAction::make(),
+                    Actions\BulkAction::make('unassign_from_user')
+                        ->label('Unassign from user')
+                        ->icon('heroicon-o-user-minus')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Unassign transactions from user')
+                        ->modalDescription('Selected transactions will be unassigned from this user (user_id cleared). The transaction records are not deleted. For external imports, the user\'s bank balance will be reduced by the unassigned amounts.')
+                        ->action(function (Collection $records): void {
+                            $owner = $this->getOwnerRecord();
+                            $count = 0;
+                            DB::transaction(function () use ($records, $owner, &$count): void {
+                                foreach ($records as $record) {
+                                    if ((int) $record->user_id !== (int) $owner->getKey()) {
+                                        continue;
+                                    }
+                                    if ($record->type === 'external_import' && $record->user) {
+                                        $record->user->debitBankAccount((float) $record->amount);
+                                    }
+                                    $record->update(['user_id' => null]);
+                                    $count++;
+                                }
+                            });
+                            $owner->refresh();
+                            $this->dispatch('refreshUserRecord', userId: $owner->getKey());
+                            Notification::make()
+                                ->title('Unassigned from user')
+                                ->body($count . ' transaction(s) unassigned.')
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                 ]),
             ])
             ->paginated([10, 25, 50]);

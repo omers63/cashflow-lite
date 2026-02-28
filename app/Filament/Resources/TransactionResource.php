@@ -207,7 +207,7 @@ class TransactionResource extends Resource
                     ->visible(fn($record) => $record->status === 'pending'),
 
                 Actions\Action::make('assign_user')
-                    ->label('Assign to User Bank')
+                    ->label('Assign User')
                     ->icon('heroicon-o-user-plus')
                     ->color('gray')
                     ->form([

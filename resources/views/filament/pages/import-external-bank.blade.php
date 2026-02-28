@@ -1,5 +1,6 @@
 <x-filament-panels::page>
-
+    {{-- Poll so Summary (Master Bank Balance, etc.) updates in real time --}}
+    <div wire:poll.10s class="contents">
     {{-- ── Import form (includes Summary tally as read-only Filament fields) ── --}}
     <x-filament::section>
         <x-slot name="heading">New Import</x-slot>
@@ -97,5 +98,6 @@
 
         {{ $this->table }}
     </x-filament::section>
+    </div>
 
 </x-filament-panels::page>
