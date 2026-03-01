@@ -58,6 +58,15 @@ class UserResource extends Resource
                             ->required()
                             ->default('active'),
 
+                        Forms\Components\Select::make('role')
+                            ->options([
+                                'user' => 'User',
+                                'admin' => 'Admin',
+                                'super_admin' => 'Super Admin',
+                            ])
+                            ->required()
+                            ->default('user'),
+
                         Forms\Components\TextInput::make('password')
                             ->password()
                             ->required(fn(string $context) => $context === 'create')
@@ -85,6 +94,19 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
                     ->copyable(),
+
+                Tables\Columns\TextColumn::make('role')
+                    ->badge()
+                    ->color(fn ($state) => match ($state) {
+                        'super_admin' => 'danger',
+                        'admin' => 'warning',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn ($state) => match ($state) {
+                        'super_admin' => 'Super Admin',
+                        'admin' => 'Admin',
+                        default => 'User',
+                    }),
 
                 Tables\Columns\TextColumn::make('status')
                     ->badge()

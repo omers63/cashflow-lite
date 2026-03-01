@@ -12,6 +12,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -20,6 +21,12 @@ class TransactionsRelationManager extends RelationManager
     protected static ?string $title = 'Transactions';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-arrow-path';
+
+    #[On('refreshTransactions')]
+    public function refresh(): void
+    {
+        // Livewire will re-render this component, reloading the table data.
+    }
 
     public function table(Table $table): Table
     {

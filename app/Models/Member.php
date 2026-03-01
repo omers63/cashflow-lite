@@ -111,6 +111,44 @@ class Member extends Model
         $this->decrement('fund_account_balance', $amount);
     }
 
+    /**
+     * Contribute the member's allowed_allocation amount from their bank account to their fund account.
+     * Also increments the master fund balance. Creates a proper contribution transaction.
+     */
+    public function contribute(?string $notes = null): Transaction
+    {
+        $amount = (int) ($this->allowed_allocation ?? 500);
+
+        if (! $this->hasSufficientBankBalance($amount)) {
+            throw new \Exception(
+                'Insufficient bank account balance to contribute. ' .
+                'Required: $' . number_format($amount, 2) . ', ' .
+                'Available: $' . number_format((float) $this->bank_account_balance, 2) . '.'
+            );
+        }
+
+        return DB::transaction(function () use ($amount, $notes): Transaction {
+            $user = $this->user;
+
+            $transaction = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('CTB'),
+                'transaction_date' => now(),
+                'type' => 'contribution',
+                'from_account' => "Member Bank Account - {$user->user_code}",
+                'to_account' => "Member Fund Account - {$user->user_code}",
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'status' => 'pending',
+                'notes' => $notes ?? 'Member contribution',
+                'created_by' => auth()->id(),
+            ]);
+
+            $transaction->process();
+
+            return $transaction->fresh();
+        });
+    }
+
     public function updateOutstandingLoans(): void
     {
         $total = $this->user->activeLoans()->sum('outstanding_balance');
@@ -148,19 +186,6 @@ class Member extends Model
         }
         if (! $this->hasSufficientBankBalance($amount)) {
             throw new \Exception('Insufficient bank account balance to allocate.');
-        }
-
-        // Dependant's bank balance cap: cannot exceed their allowed_allocation.
-        $depCap = (int) ($dependent->allowed_allocation ?? 500);
-        $depCurrentBalance = (float) $dependent->bank_account_balance;
-        $depRoom = max(0, $depCap - $depCurrentBalance);
-        if ($amount > $depRoom) {
-            throw new \Exception(
-                "This allocation would exceed the dependant's bank balance cap ($" .
-                number_format($depCap, 2) . '). ' .
-                'Current balance: $' . number_format($depCurrentBalance, 2) . ', ' .
-                'available room: $' . number_format($depRoom, 2) . '.'
-            );
         }
 
         DB::transaction(function () use ($dependent, $amount, $notes): void {

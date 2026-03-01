@@ -26,6 +26,18 @@ class ViewMember extends ViewRecord
         } else {
             $this->record->refresh();
         }
+        $this->refreshInfolist();
+    }
+
+    /**
+     * Clear the cached infolist and re-fill it from the current record.
+     * Required because Filament caches the infolist instance (including the
+     * record it was built with), so simply updating $this->record is not enough.
+     */
+    protected function refreshInfolist(): void
+    {
+        $this->cachedInfolists = [];
+        $this->fillForm();
     }
 
     protected function getHeaderActions(): array
@@ -89,60 +101,89 @@ class ViewMember extends ViewRecord
                         )
                         ->required()
                         ->live()
-                        ->afterStateUpdated(fn ($set) => $set('amount', null)),
-                    Forms\Components\TextInput::make('amount')
-                        ->label('Amount')
-                        ->numeric()
-                        ->required()
-                        ->minValue(0.01)
-                        ->step(0.01)
-                        ->prefix('$')
                         ->helperText(function ($get) use ($member, $dependants) {
                             $dep = $dependants->find((int) $get('dependent_id'));
-                            $parentAllowance = (int) ($member->allowed_allocation ?? 500);
-                            $depAllowance = (int) ($dep->allowed_allocation ?? 500);
-                            $effectiveMax = min((float) $member->bank_account_balance, $parentAllowance, $depAllowance);
-                            return 'Max: $' . number_format($effectiveMax, 2)
-                                . ' — bank: $' . number_format((float) $member->bank_account_balance, 2)
-                                . ', your allowance: $' . number_format($parentAllowance, 2)
-                                . ($dep ? ', dependant allowance: $' . number_format($depAllowance, 2) : '');
-                        })
-                        ->live()
-                        ->rule(fn ($get) => function (string $attribute, $value, \Closure $fail) use ($member, $dependants, $get) {
-                            $dep = $dependants->find((int) $get('dependent_id'));
-                            $parentAllowance = (int) ($member->allowed_allocation ?? 500);
-                            $depAllowance = (int) ($dep->allowed_allocation ?? 500);
-                            $effectiveMax = min((float) $member->bank_account_balance, $parentAllowance, $depAllowance);
-                            if ((float) $value > $effectiveMax) {
-                                $fail('Amount cannot exceed $' . number_format($effectiveMax, 2)
-                                    . ' (bank: $' . number_format((float) $member->bank_account_balance, 2)
-                                    . ', your allowance: $' . number_format($parentAllowance, 2)
-                                    . ', dependant allowance: $' . number_format($depAllowance, 2) . ').');
+                            if (! $dep) {
+                                return null;
                             }
+                            $amount = (int) ($dep->allowed_allocation ?? 500);
+                            $bank = (float) $member->bank_account_balance;
+                            $sufficient = $bank >= $amount;
+                            return 'Amount to allocate: $' . number_format($amount, 2)
+                                . ' — your bank balance: $' . number_format($bank, 2)
+                                . ($sufficient ? '' : ' ⚠ Insufficient balance');
                         }),
                     Forms\Components\Textarea::make('notes')
                         ->label('Notes')
                         ->rows(2),
                 ])
                 ->action(function (array $data): void {
-                    $member = $this->record;
+                    $member = $this->record->fresh();
                     $dependent = Member::find($data['dependent_id']);
                     if (! $dependent || $dependent->parent_id !== $member->id) {
                         Notification::make()->title('Invalid dependant')->danger()->send();
                         return;
                     }
+                    $amount = (int) ($dependent->allowed_allocation ?? 500);
+                    if ((float) $member->bank_account_balance < $amount) {
+                        Notification::make()
+                            ->title('Insufficient bank balance')
+                            ->body('Need $' . number_format($amount, 2) . ', available $' . number_format((float) $member->bank_account_balance, 2) . '.')
+                            ->danger()
+                            ->send();
+                        return;
+                    }
                     try {
-                        $member->allocateToDependant($dependent, (float) $data['amount'], $data['notes'] ?? null);
+                        $member->allocateToDependant($dependent, (float) $amount, $data['notes'] ?? null);
                         $this->record = $member->fresh();
+                        $this->refreshInfolist();
+                        $this->dispatch('refreshTransactions');
                         Notification::make()
                             ->title('Allocation completed')
-                            ->body('Funds allocated to ' . ($dependent->user?->name ?? "Member #{$dependent->id}") . '.')
+                            ->body('$' . number_format($amount, 2) . ' allocated to ' . ($dependent->user?->name ?? "Member #{$dependent->id}") . '.')
                             ->success()
                             ->send();
                     } catch (\Exception $e) {
                         Notification::make()->title($e->getMessage())->danger()->send();
                     }
                 }),
+            Actions\Action::make('contribute')
+                ->label('Contribute')
+                ->icon('heroicon-o-arrow-up-circle')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading(fn () => 'Contribute $' . number_format((int) ($member->allowed_allocation ?? 500), 2))
+                ->modalDescription(function () use ($member) {
+                    $amount = (int) ($member->allowed_allocation ?? 500);
+                    $bank = (float) $member->bank_account_balance;
+                    return "This will debit your bank account by \${$amount} and credit your fund account by the same amount. "
+                        . "Current bank balance: \$" . number_format($bank, 2) . ".";
+                })
+                ->disabled(fn () => (float) $member->bank_account_balance < (int) ($member->allowed_allocation ?? 500))
+                ->tooltip(function () use ($member) {
+                    if ((float) $member->bank_account_balance < (int) ($member->allowed_allocation ?? 500)) {
+                        return 'Insufficient bank balance to contribute $' . number_format((int) ($member->allowed_allocation ?? 500), 2);
+                    }
+                    return null;
+                })
+                ->action(function (): void {
+                    $member = $this->record->fresh();
+                    $amount = (int) ($member->allowed_allocation ?? 500);
+                    try {
+                        $member->contribute();
+                        $this->record = $member->fresh();
+                        $this->refreshInfolist();
+                        $this->dispatch('refreshTransactions');
+                        Notification::make()
+                            ->title('Contribution posted')
+                            ->body('$' . number_format($amount, 2) . ' contributed to your fund account.')
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()->title($e->getMessage())->danger()->send();
+                    }
+                }),
+
             Actions\Action::make('recalculate_balance')
                 ->label('Recalculate Balance')
                 ->icon('heroicon-o-calculator')
@@ -154,6 +195,8 @@ class ViewMember extends ViewRecord
                     $member = $this->record;
                     $balance = $member->recalculateBankAccountBalanceFromTransactions();
                     $this->record = $member->fresh();
+                    $this->refreshInfolist();
+                    $this->dispatch('refreshTransactions');
                     \Filament\Notifications\Notification::make()
                         ->title('Bank balance recalculated')
                         ->body('New balance: $' . number_format($balance, 2))
