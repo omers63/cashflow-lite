@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\MasterAccountResource\RelationManagers;
 
+use App\Models\Member;
 use App\Models\Transaction;
-use App\Models\User;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -117,27 +117,35 @@ class TransactionsRelationManager extends RelationManager
             ])
             ->recordActions([
                 Actions\Action::make('assign_user')
-                    ->label('Assign User')
+                    ->label('Assign Member')
                     ->icon('heroicon-o-user-plus')
                     ->color('gray')
                     ->schema([
-                        Forms\Components\Select::make('user_id')
-                            ->label('User Bank Account')
-                            ->options(fn () => User::active()->orderBy('name')->pluck('name', 'id'))
+                        Forms\Components\Select::make('member_id')
+                            ->label('Member')
+                            ->options(
+                                fn () => Member::with('user')
+                                    ->get()
+                                    ->mapWithKeys(fn (Member $m) => [
+                                        $m->id => $m->user
+                                            ? "{$m->user->name} ({$m->user->user_code})"
+                                            : "Member #{$m->id}",
+                                    ])
+                            )
                             ->searchable()
                             ->required(),
                     ])
                     ->action(function (Transaction $record, array $data): void {
                         DB::transaction(function () use ($record, $data): void {
-                            $user = User::find($data['user_id']);
-                            if ($user) {
-                                $user->creditBankAccount((float) $record->amount);
+                            $member = Member::find($data['member_id']);
+                            if ($member) {
+                                $member->creditBankAccount((float) $record->amount);
+                                $record->update(['user_id' => $member->user_id]);
                             }
-                            $record->update(['user_id' => $data['user_id']]);
                         });
 
                         \Filament\Notifications\Notification::make()
-                            ->title('Assigned to user bank')
+                            ->title('Assigned to member')
                             ->success()
                             ->send();
                     })
@@ -146,32 +154,40 @@ class TransactionsRelationManager extends RelationManager
                         && ! $record->user_id),
 
                 Actions\Action::make('reassign_user')
-                    ->label('Reassign to User Bank')
+                    ->label('Reassign to Member')
                     ->icon('heroicon-o-arrow-path')
                     ->color('gray')
                     ->schema([
-                        Forms\Components\Select::make('user_id')
-                            ->label('User Bank Account')
-                            ->options(fn () => User::active()->orderBy('name')->pluck('name', 'id'))
+                        Forms\Components\Select::make('member_id')
+                            ->label('Member')
+                            ->options(
+                                fn () => Member::with('user')
+                                    ->get()
+                                    ->mapWithKeys(fn (Member $m) => [
+                                        $m->id => $m->user
+                                            ? "{$m->user->name} ({$m->user->user_code})"
+                                            : "Member #{$m->id}",
+                                    ])
+                            )
                             ->searchable()
                             ->required()
-                            ->default(fn (Transaction $record) => $record->user_id),
+                            ->default(fn (Transaction $record) => $record->user?->member?->id),
                     ])
                     ->action(function (Transaction $record, array $data): void {
                         DB::transaction(function () use ($record, $data): void {
-                            $oldUser = $record->user;
-                            if ($oldUser) {
-                                $oldUser->debitBankAccount((float) $record->amount);
+                            $oldMember = $record->user?->member;
+                            if ($oldMember) {
+                                $oldMember->debitBankAccount((float) $record->amount);
                             }
-                            $newUser = User::find($data['user_id']);
-                            if ($newUser) {
-                                $newUser->creditBankAccount((float) $record->amount);
+                            $newMember = Member::find($data['member_id']);
+                            if ($newMember) {
+                                $newMember->creditBankAccount((float) $record->amount);
+                                $record->update(['user_id' => $newMember->user_id]);
                             }
-                            $record->update(['user_id' => $data['user_id']]);
                         });
 
                         \Filament\Notifications\Notification::make()
-                            ->title('Reassigned to user bank')
+                            ->title('Reassigned to member')
                             ->success()
                             ->send();
                     })

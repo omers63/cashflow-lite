@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TransactionResource\Pages;
+use App\Models\Member;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -123,6 +124,7 @@ class TransactionResource extends Resource
                         'danger' => 'loan_disbursement',
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
+                        'gray' => ['allocation_to_dependant', 'allocation_from_parent'],
                     ])
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
 
@@ -135,11 +137,31 @@ class TransactionResource extends Resource
                     ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
-                    ->money('USD')
-                    ->sortable()
+                    ->getStateUsing(function (Transaction $record): float {
+                        $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
+                        return in_array($record->type, $debits, true)
+                            ? -(float) $record->amount
+                            : (float) $record->amount;
+                    })
+                    ->formatStateUsing(fn ($state) => $state >= 0
+                        ? '$' . number_format($state, 2)
+                        : '-$' . number_format(abs($state), 2))
+                    ->color(fn ($state) => $state < 0 ? 'danger' : 'success')
+                    ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD'),
+                            ->label('Net')
+                            // Force hasQueryModification() = true so Filament skips SQL pre-computation
+                            // and calls using() instead of raw SUM(amount).
+                            ->query(fn ($q) => $q)
+                            ->using(function (string $attribute, $query) {
+                                $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
+                                $list = "'" . implode("','", $debits) . "'";
+                                return (float) ($query->selectRaw(
+                                    "SUM(CASE WHEN type IN ({$list}) THEN -amount ELSE amount END) as net"
+                                )->value('net') ?? 0);
+                            })
+                            ->formatStateUsing(fn ($state) => ($state >= 0 ? '$' : '-$') . number_format(abs((float) $state), 2)),
                     ]),
 
                 Tables\Columns\TextColumn::make('user.name')
@@ -207,26 +229,34 @@ class TransactionResource extends Resource
                     ->visible(fn($record) => $record->status === 'pending'),
 
                 Actions\Action::make('assign_user')
-                    ->label('Assign User')
+                    ->label('Assign Member')
                     ->icon('heroicon-o-user-plus')
                     ->color('gray')
                     ->form([
-                        Forms\Components\Select::make('user_id')
-                            ->label('User Bank Account')
-                            ->options(User::active()->orderBy('name')->pluck('name', 'id'))
+                        Forms\Components\Select::make('member_id')
+                            ->label('Member')
+                            ->options(
+                                Member::with('user')
+                                    ->get()
+                                    ->mapWithKeys(fn (Member $m) => [
+                                        $m->id => $m->user
+                                            ? "{$m->user->name} ({$m->user->user_code})"
+                                            : "Member #{$m->id}",
+                                    ])
+                            )
                             ->searchable()
                             ->required(),
                     ])
                     ->action(function (Transaction $record, array $data): void {
                         DB::transaction(function () use ($record, $data): void {
-                            $user = User::find($data['user_id']);
-                            if ($user) {
-                                $user->creditBankAccount((float) $record->amount);
+                            $member = Member::find($data['member_id']);
+                            if ($member) {
+                                $member->creditBankAccount((float) $record->amount);
+                                $record->update(['user_id' => $member->user_id]);
                             }
-                            $record->update(['user_id' => $data['user_id']]);
                         });
                         \Filament\Notifications\Notification::make()
-                            ->title('Assignment updated')
+                            ->title('Assigned to member')
                             ->success()
                             ->send();
                     })
@@ -237,13 +267,13 @@ class TransactionResource extends Resource
                     ->icon('heroicon-o-user-minus')
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->modalHeading('Clear user assignment')
-                    ->modalDescription('This will unassign the transaction from the current user.')
+                    ->modalHeading('Clear member assignment')
+                    ->modalDescription('This will unassign the transaction from the current member.')
                     ->action(function (Transaction $record): void {
                         DB::transaction(function () use ($record): void {
-                            $user = $record->user;
-                            if ($user) {
-                                $user->debitBankAccount((float) $record->amount);
+                            $member = $record->user?->member;
+                            if ($member) {
+                                $member->debitBankAccount((float) $record->amount);
                             }
                             $record->update(['user_id' => null]);
                         });
@@ -294,6 +324,8 @@ class TransactionResource extends Resource
                                 'loan_disbursement' => 'danger',
                                 'master_to_user_bank' => 'info',
                                 'adjustment' => 'secondary',
+                                'allocation_to_dependant' => 'gray',
+                                'allocation_from_parent' => 'gray',
                                 default => 'secondary',
                             })
                             ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
@@ -309,7 +341,16 @@ class TransactionResource extends Resource
                         Infolists\Components\TextEntry::make('from_account'),
                         Infolists\Components\TextEntry::make('to_account'),
                         Infolists\Components\TextEntry::make('amount')
-                            ->money('USD'),
+                            ->getStateUsing(function (Transaction $record): float {
+                                $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
+                                return in_array($record->type, $debits, true)
+                                    ? -(float) $record->amount
+                                    : (float) $record->amount;
+                            })
+                            ->formatStateUsing(fn ($state) => $state >= 0
+                                ? '$' . number_format($state, 2)
+                                : '-$' . number_format(abs($state), 2))
+                            ->color(fn ($state) => $state < 0 ? 'danger' : 'success'),
                         Infolists\Components\TextEntry::make('reference'),
                     ])
                     ->columns(2),

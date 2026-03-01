@@ -26,6 +26,7 @@ class Transaction extends Model
         'created_by',
         'approved_by',
         'approved_at',
+        'allocation_pair_id',
     ];
 
     protected $casts = [
@@ -55,10 +56,17 @@ class Transaction extends Model
         return $this->hasOne(LoanPayment::class);
     }
 
+    /** @var array<int, true> IDs of allocation-paired transactions being deleted after their pair was reversed (skip reverse to avoid double-reverse) */
+    protected static array $skipReverseAllocationPairIds = [];
+
     protected static function booted(): void
     {
         static::deleting(function (Transaction $transaction): void {
             if ($transaction->status !== 'complete') {
+                return;
+            }
+            if (isset(static::$skipReverseAllocationPairIds[$transaction->id])) {
+                unset(static::$skipReverseAllocationPairIds[$transaction->id]);
                 return;
             }
             $transaction->reverseBalanceEffect();
@@ -90,8 +98,42 @@ class Transaction extends Model
                 case 'adjustment':
                     // No balance effect to reverse
                     break;
+                case 'allocation_to_dependant':
+                    $this->reverseAllocationToDependant();
+                    break;
+                case 'allocation_from_parent':
+                    $this->reverseAllocationFromParent();
+                    break;
             }
         });
+    }
+
+    private function reverseAllocationToDependant(): void
+    {
+        $parentMember = $this->user?->member;
+        if ($parentMember) {
+            $parentMember->creditBankAccount((float) $this->amount);
+        }
+        $paired = static::where('allocation_pair_id', $this->id)->where('id', '!=', $this->id)->first();
+        if ($paired && $paired->user?->member) {
+            $paired->user->member->debitBankAccount((float) $paired->amount);
+            static::$skipReverseAllocationPairIds[$paired->id] = true;
+            $paired->delete();
+        }
+    }
+
+    private function reverseAllocationFromParent(): void
+    {
+        $dependentMember = $this->user?->member;
+        if ($dependentMember) {
+            $dependentMember->debitBankAccount((float) $this->amount);
+        }
+        $parentTx = $this->allocation_pair_id ? static::find($this->allocation_pair_id) : null;
+        if ($parentTx && $parentTx->user?->member) {
+            $parentTx->user->member->creditBankAccount((float) $parentTx->amount);
+            static::$skipReverseAllocationPairIds[$parentTx->id] = true;
+            $parentTx->delete();
+        }
     }
 
     private function reverseExternalImport(): void

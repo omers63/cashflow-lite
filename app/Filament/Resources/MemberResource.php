@@ -26,23 +26,56 @@ class MemberResource extends Resource
         return $schema
             ->schema([
                 Components\Section::make('Member')
-                    ->description('A member is a user. Not every user is a member. A dependant can only have one parent; a dependant cannot be a parent.')
+                    ->description('A member is a user. Creating a member will create a new user. A dependant can only have one parent; a dependant cannot be a parent.')
                     ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Name')
+                            ->required()
+                            ->maxLength(255)
+                            ->visible(fn (?Member $record) => $record === null),
+
+                        Forms\Components\TextInput::make('email')
+                            ->label('Email')
+                            ->email()
+                            ->required()
+                            ->unique(table: 'users', column: 'email')
+                            ->maxLength(255)
+                            ->visible(fn (?Member $record) => $record === null),
+
+                        Forms\Components\TextInput::make('password')
+                            ->label('Password')
+                            ->password()
+                            ->required()
+                            ->dehydrated(fn ($state) => filled($state))
+                            ->maxLength(255)
+                            ->visible(fn (?Member $record) => $record === null),
+
+                        Forms\Components\TextInput::make('phone')
+                            ->label('Phone')
+                            ->tel()
+                            ->maxLength(20)
+                            ->visible(fn (?Member $record) => $record === null),
+
+                        Forms\Components\Select::make('status')
+                            ->label('User status')
+                            ->options([
+                                'active' => 'Active',
+                                'inactive' => 'Inactive',
+                                'suspended' => 'Suspended',
+                            ])
+                            ->default('active')
+                            ->visible(fn (?Member $record) => $record === null),
+
                         Forms\Components\Select::make('user_id')
                             ->label('User')
-                            ->relationship(
-                                'user',
-                                'name',
-                                modifyQueryUsing: fn ($query, string $operation) => $operation === 'create'
-                                    ? $query->whereDoesntHave('member')
-                                    : $query
-                            )
+                            ->relationship('user', 'name')
                             ->searchable()
                             ->preload()
                             ->required()
-                            ->disabled(fn (?Member $record) => $record !== null)
+                            ->disabled()
                             ->dehydrated()
-                            ->helperText(fn (?Member $record) => $record ? 'User cannot be changed after creation.' : 'Only users who are not already members can be selected.'),
+                            ->visible(fn (?Member $record) => $record !== null)
+                            ->helperText('User cannot be changed after creation.'),
 
                         Forms\Components\Select::make('parent_id')
                             ->label('Parent member (optional)')
@@ -90,6 +123,17 @@ class MemberResource extends Resource
                             ->default(0)
                             ->step(0.01)
                             ->disabled(),
+
+                        Forms\Components\Select::make('allowed_allocation')
+                            ->label('Bank Balance Cap')
+                            ->options(array_combine(
+                                Member::ALLOCATION_OPTIONS,
+                                array_map(fn ($v) => '$' . number_format($v, 0), Member::ALLOCATION_OPTIONS)
+                            ))
+                            ->default(500)
+                            ->required()
+                            ->visible(fn (?Member $record) => $record !== null)
+                            ->helperText('Maximum allowed bank account balance for this member (multiples of $500, up to $3,000).'),
 
                         Forms\Components\TextInput::make('available_to_borrow')
                             ->label('Available to Borrow')
@@ -230,6 +274,14 @@ class MemberResource extends Resource
                             ->getStateUsing(fn (Member $record) => $record->available_to_borrow)
                             ->money('USD')
                             ->color(fn ($state) => $state > 0 ? 'success' : 'danger'),
+
+                        Infolists\Components\TextEntry::make('allowed_allocation')
+                            ->label('Bank Balance Cap')
+                            ->getStateUsing(fn (Member $record) => '$' . number_format((int) ($record->allowed_allocation ?? 500), 2))
+                            ->helperText(fn (Member $record) => 'Room remaining: $' . number_format(
+                                max(0, (int) ($record->allowed_allocation ?? 500) - (float) $record->bank_account_balance), 2
+                            ))
+                            ->color('info'),
                     ])
                     ->columns(2),
             ]);

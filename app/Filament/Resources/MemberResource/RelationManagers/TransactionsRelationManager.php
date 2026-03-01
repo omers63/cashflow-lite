@@ -44,6 +44,7 @@ class TransactionsRelationManager extends RelationManager
                         'danger' => 'loan_disbursement',
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
+                        'gray' => ['allocation_to_dependant', 'allocation_from_parent'],
                     ])
                     ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
 
@@ -56,12 +57,32 @@ class TransactionsRelationManager extends RelationManager
                     ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
-                    ->money('USD')
-                    ->sortable()
+                    ->label('Amount')
+                    ->getStateUsing(function (Transaction $record) {
+                        $amount = (float) $record->amount;
+                        $debitTypes = ['contribution', 'allocation_to_dependant'];
+                        return in_array($record->type, $debitTypes, true) ? -$amount : $amount;
+                    })
+                    ->formatStateUsing(fn ($state) => $state >= 0
+                        ? '$' . number_format($state, 2)
+                        : '-$' . number_format(abs($state), 2))
+                    ->color(fn ($state) => $state < 0 ? 'danger' : null)
+                    ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD')
-                            ->label('Total'),
+                            ->label('Net (matches bank balance)')
+                            // modifyQueryUsing must be set so hasQueryModification() returns true,
+                            // otherwise Filament pre-computes SUM(amount) in SQL via selectedState
+                            // and the using() callback is never reached.
+                            ->query(fn ($q) => $q)
+                            ->using(function (string $attribute, $query) {
+                                /** @var \Filament\Resources\RelationManagers\RelationManager $livewire */
+                                $livewire = $this->getTable()->getLivewire();
+                                $owner = $livewire->getOwnerRecord();
+                                $owner->refresh();
+                                return (float) $owner->bank_account_balance;
+                            })
+                            ->formatStateUsing(fn ($state) => '$' . number_format((float) $state, 2)),
                     ]),
 
                 Tables\Columns\TextColumn::make('status')
@@ -83,6 +104,8 @@ class TransactionsRelationManager extends RelationManager
                         'contribution' => 'Contribution',
                         'loan_repayment' => 'Loan Repayment',
                         'loan_disbursement' => 'Loan Disbursement',
+                        'allocation_to_dependant' => 'Allocation to Dependant',
+                        'allocation_from_parent' => 'Allocation from Parent',
                         'adjustment' => 'Adjustment',
                     ])
                     ->multiple(),
@@ -146,12 +169,12 @@ class TransactionsRelationManager extends RelationManager
                 Actions\ViewAction::make()
                     ->url(fn($record) => TransactionResource::getUrl('view', ['record' => $record])),
                 Actions\Action::make('unassign')
-                    ->label('Unassign from user')
+                    ->label('Unassign Member')
                     ->icon('heroicon-o-user-minus')
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->modalHeading('Unassign transaction from user')
-                    ->modalDescription('This transaction will be unassigned from this member\'s user. The record is not deleted. For external imports, the member\'s bank balance will be reduced by the transaction amount.')
+                    ->modalHeading('Unassign transaction from member')
+                    ->modalDescription('This transaction will be unassigned from this member. The record is not deleted. For external imports, the member\'s bank balance will be reduced by the transaction amount.')
                     ->action(function (Transaction $record): void {
                         $owner = $this->getOwnerRecord();
                         $ownerUserId = (int) $owner->user_id;
@@ -176,12 +199,12 @@ class TransactionsRelationManager extends RelationManager
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('unassign_from_user')
-                        ->label('Unassign from user')
+                        ->label('Unassign Member')
                         ->icon('heroicon-o-user-minus')
                         ->color('gray')
                         ->requiresConfirmation()
-                        ->modalHeading('Unassign transactions from user')
-                        ->modalDescription('Selected transactions will be unassigned from this member\'s user. The transaction records are not deleted. For external imports, the member\'s bank balance will be reduced by the unassigned amounts.')
+                        ->modalHeading('Unassign transactions from member')
+                        ->modalDescription('Selected transactions will be unassigned from this member. The transaction records are not deleted. For external imports, the member\'s bank balance will be reduced by the unassigned amounts.')
                         ->action(function (Collection $records): void {
                             $owner = $this->getOwnerRecord();
                             $ownerUserId = (int) $owner->user_id;
@@ -201,7 +224,7 @@ class TransactionsRelationManager extends RelationManager
                             $owner->refresh();
                             $this->dispatch('refreshMemberRecord', memberId: $owner->getKey());
                             Notification::make()
-                                ->title('Unassigned from user')
+                                ->title('Unassigned from member')
                                 ->body($count . ' transaction(s) unassigned.')
                                 ->success()
                                 ->send();

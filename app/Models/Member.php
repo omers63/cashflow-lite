@@ -6,21 +6,27 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\DB;
 
 class Member extends Model
 {
+    /** Valid allowed_allocation steps: multiples of 500 from 500 to 3000. */
+    public const ALLOCATION_OPTIONS = [500, 1000, 1500, 2000, 2500, 3000];
+
     protected $fillable = [
         'user_id',
         'parent_id',
         'bank_account_balance',
         'fund_account_balance',
         'outstanding_loans',
+        'allowed_allocation',
     ];
 
     protected $casts = [
         'bank_account_balance' => 'decimal:2',
         'fund_account_balance' => 'decimal:2',
         'outstanding_loans' => 'decimal:2',
+        'allowed_allocation' => 'integer',
     ];
 
     public function user(): BelongsTo
@@ -117,15 +123,84 @@ class Member extends Model
     public function recalculateBankAccountBalanceFromTransactions(): float
     {
         $credits = $this->user->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import'])
+            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import', 'allocation_from_parent'])
             ->sum('amount');
         $debits = $this->user->transactions()
-            ->where('type', 'contribution')
+            ->whereIn('type', ['contribution', 'allocation_to_dependant'])
             ->sum('amount');
         $balance = (float) $credits - (float) $debits;
         $this->update(['bank_account_balance' => $balance]);
 
         return $balance;
+    }
+
+    /**
+     * Allocate funds from this member's bank account to a dependant's bank account.
+     * Creates two linked transactions (allocation_to_dependant / allocation_from_parent) and updates balances.
+     */
+    public function allocateToDependant(Member $dependent, float $amount, ?string $notes = null): void
+    {
+        if ($dependent->parent_id !== $this->id) {
+            throw new \InvalidArgumentException('The target member is not a dependant of this member.');
+        }
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Amount must be positive.');
+        }
+        if (! $this->hasSufficientBankBalance($amount)) {
+            throw new \Exception('Insufficient bank account balance to allocate.');
+        }
+
+        // Dependant's bank balance cap: cannot exceed their allowed_allocation.
+        $depCap = (int) ($dependent->allowed_allocation ?? 500);
+        $depCurrentBalance = (float) $dependent->bank_account_balance;
+        $depRoom = max(0, $depCap - $depCurrentBalance);
+        if ($amount > $depRoom) {
+            throw new \Exception(
+                "This allocation would exceed the dependant's bank balance cap ($" .
+                number_format($depCap, 2) . '). ' .
+                'Current balance: $' . number_format($depCurrentBalance, 2) . ', ' .
+                'available room: $' . number_format($depRoom, 2) . '.'
+            );
+        }
+
+        DB::transaction(function () use ($dependent, $amount, $notes): void {
+            $txIdOut = Transaction::generateTransactionId('ALLOUT');
+            $txIdIn = Transaction::generateTransactionId('ALLOIN');
+
+            $outTx = Transaction::create([
+                'transaction_id' => $txIdOut,
+                'transaction_date' => now(),
+                'type' => 'allocation_to_dependant',
+                'from_account' => 'member_bank',
+                'to_account' => 'member_bank',
+                'amount' => $amount,
+                'user_id' => $this->user_id,
+                'reference' => null,
+                'status' => 'complete',
+                'notes' => $notes ?? 'Allocation to dependant: ' . ($dependent->user?->name ?? "Member #{$dependent->id}"),
+                'created_by' => auth()->id(),
+            ]);
+
+            $outTx->update(['allocation_pair_id' => $outTx->id]);
+
+            $inTx = Transaction::create([
+                'transaction_id' => $txIdIn,
+                'transaction_date' => now(),
+                'type' => 'allocation_from_parent',
+                'from_account' => 'member_bank',
+                'to_account' => 'member_bank',
+                'amount' => $amount,
+                'user_id' => $dependent->user_id,
+                'reference' => null,
+                'status' => 'complete',
+                'notes' => $notes ?? 'Allocation from parent: ' . ($this->user?->name ?? "Member #{$this->id}"),
+                'created_by' => auth()->id(),
+                'allocation_pair_id' => $outTx->id,
+            ]);
+
+            $this->debitBankAccount($amount);
+            $dependent->creditBankAccount($amount);
+        });
     }
 
     protected static function booted(): void
