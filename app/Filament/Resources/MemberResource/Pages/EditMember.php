@@ -109,7 +109,7 @@ class EditMember extends EditRecord
                 ])
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
-                    $dependent = Member::find($data['dependent_id']);
+                    $dependent = Member::query()->find((int) $data['dependent_id']);
                     if (! $dependent || $dependent->parent_id !== $member->id) {
                         Notification::make()->title('Invalid dependant')->danger()->send();
                         return;
@@ -141,26 +141,29 @@ class EditMember extends EditRecord
                 ->label('Contribute')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->color('success')
-                ->requiresConfirmation()
-                ->modalHeading(fn () => 'Contribute $' . number_format((int) ($member->allowed_allocation ?? 500), 2))
-                ->modalDescription(function () use ($member) {
-                    $amount = (int) ($member->allowed_allocation ?? 500);
+                ->visible(fn () => ! $member->hasActiveLoan())
+                ->disabled(fn () => (float) $member->bank_account_balance <= 0)
+                ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : null)
+                ->form(function () use ($member) {
+                    $default = (int) ($member->allowed_allocation ?? 500);
                     $bank = (float) $member->bank_account_balance;
-                    return "This will debit your bank account by \${$amount} and credit your fund account by the same amount. "
-                        . "Current bank balance: \$" . number_format($bank, 2) . ".";
+                    return [
+                        Forms\Components\TextInput::make('amount')
+                            ->label('Contribution Amount')
+                            ->numeric()
+                            ->prefix('$')
+                            ->default($default)
+                            ->minValue(0.01)
+                            ->step(0.01)
+                            ->required()
+                            ->helperText('Default is your allowance ($' . number_format($default, 2) . '). Bank balance available: $' . number_format($bank, 2) . '.'),
+                    ];
                 })
-                ->disabled(fn () => (float) $member->bank_account_balance < (int) ($member->allowed_allocation ?? 500))
-                ->tooltip(function () use ($member) {
-                    if ((float) $member->bank_account_balance < (int) ($member->allowed_allocation ?? 500)) {
-                        return 'Insufficient bank balance to contribute $' . number_format((int) ($member->allowed_allocation ?? 500), 2);
-                    }
-                    return null;
-                })
-                ->action(function (): void {
+                ->action(function (array $data): void {
                     $member = $this->record->fresh();
-                    $amount = (int) ($member->allowed_allocation ?? 500);
+                    $amount = (float) $data['amount'];
                     try {
-                        $member->contribute();
+                        $member->contribute($amount);
                         $this->record = $member->fresh();
                         $this->refreshFormData(['bank_account_balance', 'fund_account_balance']);
                         $this->dispatch('refreshTransactions');
@@ -172,6 +175,159 @@ class EditMember extends EditRecord
                     } catch (\Exception $e) {
                         Notification::make()->title($e->getMessage())->danger()->send();
                     }
+                }),
+
+            Actions\Action::make('make_repayment')
+                ->label('Make Repayment')
+                ->icon('heroicon-o-arrow-up-circle')
+                ->color('success')
+                ->visible(fn () => $member->hasActiveLoan())
+                ->form(function () use ($member) {
+                    $activeLoans = $member->loans()->where('status', 'active')->with('member')->get();
+                    $options = $activeLoans->mapWithKeys(function (\App\Models\Loan $loan) {
+                        $installment = (float) ($loan->installment_amount ?? $loan->monthly_payment);
+                        $remaining = (float) $loan->outstanding_balance;
+                        $payAmount = min($installment, $remaining);
+                        return [
+                            $loan->id => "{$loan->loan_id} — installment \${$payAmount} (balance \$" . number_format($remaining, 2) . ')',
+                        ];
+                    });
+                    return [
+                        Forms\Components\Select::make('loan_id')
+                            ->label('Loan')
+                            ->options($options)
+                            ->required()
+                            ->default($activeLoans->first()?->id)
+                            ->live()
+                            ->helperText(function ($get) use ($member, $activeLoans) {
+                                $loan = $activeLoans->find((int) $get('loan_id'));
+                                if (! $loan) {
+                                    return null;
+                                }
+                                $installment = min((float) ($loan->installment_amount ?? $loan->monthly_payment), (float) $loan->outstanding_balance);
+                                $bank = (float) $member->bank_account_balance;
+                                $sufficient = $bank >= $installment;
+                                return 'Repayment: $' . number_format($installment, 2)
+                                    . ' — bank balance: $' . number_format($bank, 2)
+                                    . ($sufficient ? '' : ' — Insufficient balance');
+                            }),
+                    ];
+                })
+                ->action(function (array $data): void {
+                    $member = $this->record->fresh();
+                    $loan = \App\Models\Loan::find($data['loan_id']);
+                    if (! $loan || $loan->member_id !== $member->id) {
+                        Notification::make()->title('Invalid loan')->danger()->send();
+                        return;
+                    }
+                    try {
+                        $member->makeRepayment($loan);
+                        $this->record = $member->fresh();
+                        $this->refreshFormData(['bank_account_balance', 'fund_account_balance', 'outstanding_loans']);
+                        $this->dispatch('refreshTransactions');
+                        Notification::make()
+                            ->title('Repayment posted')
+                            ->body("Loan {$loan->loan_id}: repayment recorded.")
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()->title($e->getMessage())->danger()->send();
+                    }
+                }),
+
+            Actions\Action::make('request_loan')
+                ->label('Request Loan')
+                ->icon('heroicon-o-banknotes')
+                ->color('danger')
+                ->form(function () use ($member) {
+                    $maxLoan = $member->maxLoanAmount();
+                    $errors = $member->loanEligibilityErrors();
+                    $fields = [];
+
+                    if (! empty($errors)) {
+                        $fields[] = Forms\Components\Placeholder::make('_eligibility_warning')
+                            ->label('Not Eligible')
+                            ->content(implode("\n", $errors))
+                            ->extraAttributes(['class' => 'text-danger-600 dark:text-danger-400']);
+                    }
+
+                    $fields[] = Forms\Components\Placeholder::make('_info')
+                        ->label('Loan Limits')
+                        ->content('Max loan: $' . number_format($maxLoan, 2) . ' (2× fund balance $' . number_format((float) $member->fund_account_balance, 2) . ')');
+
+                    $fields[] = Forms\Components\TextInput::make('amount')
+                        ->label('Loan Amount')
+                        ->numeric()
+                        ->prefix('$')
+                        ->required()
+                        ->minValue(1000)
+                        ->maxValue(min($maxLoan, 300000))
+                        ->step(1)
+                        ->live()
+                        ->helperText(function ($get) {
+                            $amount = (float) ($get('amount') ?? 0);
+                            $tier = Member::loanTierFor($amount);
+                            if (! $tier) {
+                                return $amount > 0 ? 'Amount outside tier range ($1,000–$300,000)' : null;
+                            }
+                            return 'Installment: $' . number_format($tier['installment'])
+                                . ' | Maturity balance: $' . number_format($tier['maturity_balance']);
+                        });
+
+                    $fields[] = Forms\Components\TextInput::make('interest_rate')
+                        ->label('Annual Interest Rate (%)')
+                        ->numeric()
+                        ->default(0)
+                        ->suffix('%')
+                        ->minValue(0)
+                        ->maxValue(100)
+                        ->step(0.01);
+
+                    $fields[] = Forms\Components\Toggle::make('is_emergency')
+                        ->label('Emergency Request')
+                        ->default(false);
+
+                    $fields[] = Forms\Components\Textarea::make('notes')
+                        ->label('Notes')
+                        ->rows(2);
+
+                    return $fields;
+                })
+                ->action(function (array $data): void {
+                    $member = $this->record->fresh();
+                    $errors = $member->loanEligibilityErrors();
+                    if (! empty($errors)) {
+                        Notification::make()->title('Not eligible for a loan')->body(implode("\n", $errors))->danger()->send();
+                        return;
+                    }
+                    $amount = (float) $data['amount'];
+                    if ($amount > $member->maxLoanAmount()) {
+                        Notification::make()->title('Amount exceeds maximum ($' . number_format($member->maxLoanAmount(), 2) . ')')->danger()->send();
+                        return;
+                    }
+                    $tier = Member::loanTierFor($amount);
+                    $loan = \App\Models\Loan::create([
+                        'loan_id' => \App\Models\Loan::generateLoanId(),
+                        'user_id' => $member->user_id,
+                        'member_id' => $member->id,
+                        'origination_date' => now(),
+                        'original_amount' => $amount,
+                        'interest_rate' => (float) ($data['interest_rate'] ?? 0),
+                        'term_months' => $tier ? (int) ceil($amount / $tier['installment']) : 12,
+                        'monthly_payment' => $tier['installment'] ?? $amount,
+                        'installment_amount' => $tier['installment'] ?? null,
+                        'maturity_fund_balance' => $tier['maturity_balance'] ?? null,
+                        'total_paid' => 0,
+                        'outstanding_balance' => $amount,
+                        'status' => 'pending',
+                        'is_emergency' => (bool) ($data['is_emergency'] ?? false),
+                        'notes' => $data['notes'] ?? null,
+                    ]);
+                    Notification::make()
+                        ->title('Loan request submitted')
+                        ->body("Loan {$loan->loan_id} for \$" . number_format($amount, 2) . ' is pending approval.')
+                        ->success()
+                        ->send();
                 }),
 
             Actions\Action::make('import_funds')
@@ -234,21 +390,23 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('recalculate_balance')
-                ->label('Recalculate Balance')
+                ->label('Recalculate Balances')
                 ->icon('heroicon-o-calculator')
                 ->color('success')
                 ->requiresConfirmation()
-                ->modalHeading('Recalculate bank balance from transactions')
-                ->modalDescription('This will set Bank Account Balance to the sum of transaction effects (credits minus debits) for this member. Use when the balance is out of sync.')
+                ->modalHeading('Recalculate balances from transactions')
+                ->modalDescription('This will recalculate both the Bank Account Balance and Fund Account Balance from the member\'s transactions.')
                 ->action(function (): void {
                     /** @var Member $member */
                     $member = $this->record;
-                    $balance = $member->recalculateBankAccountBalanceFromTransactions();
+                    $bankBalance = $member->recalculateBankAccountBalanceFromTransactions();
+                    $fundBalance = $member->recalculateFundAccountBalanceFromTransactions();
+                    $member->updateOutstandingLoans();
                     $this->record = $member->fresh();
-                    $this->refreshFormData(['bank_account_balance']);
+                    $this->refreshFormData(['bank_account_balance', 'fund_account_balance', 'outstanding_loans']);
                     Notification::make()
-                        ->title('Bank balance recalculated')
-                        ->body('New balance: $' . number_format($balance, 2))
+                        ->title('Balances recalculated')
+                        ->body('Bank: $' . number_format($bankBalance, 2) . ' | Fund: $' . number_format($fundBalance, 2))
                         ->success()
                         ->send();
                 }),

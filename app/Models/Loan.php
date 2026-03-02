@@ -21,14 +21,18 @@ class Loan extends Model
     protected $fillable = [
         'loan_id',
         'user_id',
+        'member_id',
         'origination_date',
         'original_amount',
         'interest_rate',
         'term_months',
         'monthly_payment',
+        'installment_amount',
+        'maturity_fund_balance',
         'total_paid',
         'outstanding_balance',
         'status',
+        'is_emergency',
         'next_payment_date',
         'approved_by',
         'approved_at',
@@ -40,16 +44,24 @@ class Loan extends Model
         'original_amount' => 'decimal:2',
         'interest_rate' => 'decimal:2',
         'monthly_payment' => 'decimal:2',
+        'installment_amount' => 'decimal:2',
+        'maturity_fund_balance' => 'decimal:2',
         'total_paid' => 'decimal:2',
         'outstanding_balance' => 'decimal:2',
         'next_payment_date' => 'date',
         'approved_at' => 'datetime',
+        'is_emergency' => 'boolean',
     ];
 
     // Relationships
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function member(): BelongsTo
+    {
+        return $this->belongsTo(Member::class);
     }
 
     public function approver(): BelongsTo
@@ -70,9 +82,15 @@ class Loan extends Model
     public static function generateLoanId(): string
     {
         $date = now()->format('Ymd');
-        $count = static::whereDate('created_at', now())->count() + 1;
-        
-        return sprintf('LOAN-%s-%03d', $date, $count);
+        $count = static::withTrashed()->whereDate('created_at', now())->count() + 1;
+        $id = sprintf('LOAN-%s-%03d', $date, $count);
+
+        while (static::withTrashed()->where('loan_id', $id)->exists()) {
+            $count++;
+            $id = sprintf('LOAN-%s-%03d', $date, $count);
+        }
+
+        return $id;
     }
 
     /**
@@ -243,7 +261,7 @@ class Loan extends Model
     }
 
     /**
-     * Approve loan
+     * Approve loan — sets tier-based installment/maturity values and creates the disbursement transaction.
      */
     public function approve(int $approverId): void
     {
@@ -251,17 +269,65 @@ class Loan extends Model
             throw new \Exception("Only pending loans can be approved");
         }
 
+        $tier = Member::loanTierFor((float) $this->original_amount);
+
         $this->update([
             'status' => 'active',
             'approved_by' => $approverId,
             'approved_at' => now(),
             'next_payment_date' => Carbon::parse($this->origination_date)->addMonth(),
+            'installment_amount' => $tier['installment'] ?? $this->monthly_payment,
+            'maturity_fund_balance' => $tier['maturity_balance'] ?? 0,
+            'monthly_payment' => $tier['installment'] ?? $this->monthly_payment,
         ]);
 
-        // TODO: Add activity logging if package is installed
-        // activity()
-        //     ->performedOn($this)
-        //     ->log('Loan approved');
+        // Create disbursement transaction (debits master fund, credits member's bank)
+        $user = $this->user;
+        $transaction = Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('LNDSB'),
+            'transaction_date' => now(),
+            'type' => 'loan_disbursement',
+            'from_account' => "Member Fund Account - {$user->user_code}",
+            'to_account' => 'Loan Disbursement',
+            'amount' => $this->original_amount,
+            'user_id' => $this->user_id,
+            'reference' => $this->loan_id,
+            'status' => 'pending',
+            'notes' => "Loan disbursement for {$this->loan_id}",
+            'created_by' => $approverId,
+        ]);
+        $transaction->process();
+
+        activity()
+            ->performedOn($this)
+            ->log('Loan approved and disbursed');
+    }
+
+    /**
+     * Check if the loan has matured: outstanding balance is paid AND the member's
+     * fund account balance has reached the tier's maturity_fund_balance threshold.
+     */
+    public function isMatured(): bool
+    {
+        if ((float) $this->outstanding_balance > 0.01) {
+            return false;
+        }
+        if (! $this->member) {
+            return (float) $this->outstanding_balance <= 0.01;
+        }
+        $target = (float) ($this->maturity_fund_balance ?? 0);
+        return (float) $this->member->fund_account_balance >= $target;
+    }
+
+    /** Whether this is the member's first loan ever. */
+    public function isFirstLoanForMember(): bool
+    {
+        if (! $this->member_id) {
+            return true;
+        }
+        return static::where('member_id', $this->member_id)
+            ->where('id', '!=', $this->id)
+            ->doesntExist();
     }
 
     /**
@@ -288,6 +354,22 @@ class Loan extends Model
     {
         return $query->where('status', 'active')
             ->where('next_payment_date', '<', now());
+    }
+
+    /**
+     * Pending loans ordered by approval priority:
+     *   1. Emergency requests first
+     *   2. First-time requesters before repeat borrowers
+     *   3. Earliest request date/time
+     */
+    public function scopePendingPrioritized($query)
+    {
+        return $query->where('status', 'pending')
+            ->orderByDesc('is_emergency')
+            ->orderByRaw(
+                '(SELECT COUNT(*) FROM loans AS l2 WHERE l2.member_id = loans.member_id AND l2.id != loans.id) ASC'
+            )
+            ->orderBy('created_at', 'asc');
     }
 
     public function scopeDueSoon($query, int $days = 7)

@@ -189,12 +189,8 @@ class Transaction extends Model
 
     private function reverseLoanDisbursement(): void
     {
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->increment('balance', $this->amount);
-        }
         if ($this->user) {
-            $this->user->debitBankAccount($this->amount);
+            $this->user->creditFundAccount($this->amount);
             $this->user->updateOutstandingLoans();
         }
     }
@@ -347,14 +343,7 @@ class Transaction extends Model
 
     private function processLoanDisbursement(): void
     {
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        
-        if ($masterFund->balance < $this->amount) {
-            throw new \Exception("Insufficient master fund balance");
-        }
-
-        $masterFund->decrement('balance', $this->amount);
-        $this->user->creditBankAccount($this->amount);
+        $this->user->debitFundAccount($this->amount);
         $this->user->updateOutstandingLoans();
     }
 

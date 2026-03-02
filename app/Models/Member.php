@@ -13,9 +13,34 @@ class Member extends Model
     /** Valid allowed_allocation steps: multiples of 500 from 500 to 3000. */
     public const ALLOCATION_OPTIONS = [500, 1000, 1500, 2000, 2500, 3000];
 
+    /** Minimum fund balance required to be eligible for a loan. */
+    public const LOAN_MIN_FUND_BALANCE = 6000;
+
+    /** Minimum membership duration (in years) required for loan eligibility. */
+    public const LOAN_MIN_MEMBERSHIP_YEARS = 1;
+
+    /**
+     * Loan tiers: [min_amount, max_amount, installment_amount, maturity_balance].
+     * The loan is considered matured when the fund portion is repaid and the
+     * member's new fund balance reaches the maturity_balance.
+     */
+    public const LOAN_TIERS = [
+        [1000,   30000,  1000, 5000],
+        [31000,  60000,  1500, 10000],
+        [61000,  90000,  2000, 15000],
+        [91000,  120000, 2500, 20000],
+        [121000, 150000, 3000, 24000],
+        [151000, 180000, 3500, 29000],
+        [181000, 210000, 4000, 34000],
+        [211000, 240000, 4500, 39000],
+        [241000, 270000, 5000, 44000],
+        [271000, 300000, 5500, 50000],
+    ];
+
     protected $fillable = [
         'user_id',
         'parent_id',
+        'membership_date',
         'bank_account_balance',
         'fund_account_balance',
         'outstanding_loans',
@@ -23,6 +48,7 @@ class Member extends Model
     ];
 
     protected $casts = [
+        'membership_date' => 'date',
         'bank_account_balance' => 'decimal:2',
         'fund_account_balance' => 'decimal:2',
         'outstanding_loans' => 'decimal:2',
@@ -70,6 +96,81 @@ class Member extends Model
         return static::query()->whereNull('parent_id');
     }
 
+    // ─── Loans ──────────────────────────────────────────────────────────────────
+
+    public function loans(): HasMany
+    {
+        return $this->hasMany(Loan::class);
+    }
+
+    /** Whether the member has at least one active (non-paid-off) loan. */
+    public function hasActiveLoan(): bool
+    {
+        return $this->loans()->where('status', 'active')->exists();
+    }
+
+    /** Membership tenure in years (from membership_date to today). */
+    public function membershipYears(): float
+    {
+        if (! $this->membership_date) {
+            return 0;
+        }
+        return $this->membership_date->diffInDays(now()) / 365.25;
+    }
+
+    /** Maximum loan amount: up to 2× fund account balance, capped at $300,000. */
+    public function maxLoanAmount(): float
+    {
+        return min((float) $this->fund_account_balance * 2, 300000.0);
+    }
+
+    /**
+     * Check whether this member is eligible for a new loan and return
+     * a list of failed rules (empty = eligible).
+     * @return string[]
+     */
+    public function loanEligibilityErrors(): array
+    {
+        $errors = [];
+
+        if ($this->membershipYears() < self::LOAN_MIN_MEMBERSHIP_YEARS) {
+            $errors[] = 'Membership must be at least ' . self::LOAN_MIN_MEMBERSHIP_YEARS
+                . ' year(s). Current: ' . number_format($this->membershipYears(), 1) . ' years.';
+        }
+
+        if ((float) $this->fund_account_balance < self::LOAN_MIN_FUND_BALANCE) {
+            $errors[] = 'Fund account balance must be at least $'
+                . number_format(self::LOAN_MIN_FUND_BALANCE, 2)
+                . '. Current: $' . number_format((float) $this->fund_account_balance, 2) . '.';
+        }
+
+        return $errors;
+    }
+
+    public function isEligibleForLoan(): bool
+    {
+        return empty($this->loanEligibilityErrors());
+    }
+
+    /**
+     * Look up the loan tier for a given loan amount.
+     * @return array{min: int, max: int, installment: int, maturity_balance: int}|null
+     */
+    public static function loanTierFor(float $amount): ?array
+    {
+        foreach (self::LOAN_TIERS as [$min, $max, $installment, $maturity]) {
+            if ($amount >= $min && $amount <= $max) {
+                return [
+                    'min' => $min,
+                    'max' => $max,
+                    'installment' => $installment,
+                    'maturity_balance' => $maturity,
+                ];
+            }
+        }
+        return null;
+    }
+
     // ─── Financials (moved from User) ─────────────────────────────────────────
 
     /** Calculate available amount to borrow (fund balance minus outstanding loans). */
@@ -115,9 +216,9 @@ class Member extends Model
      * Contribute the member's allowed_allocation amount from their bank account to their fund account.
      * Also increments the master fund balance. Creates a proper contribution transaction.
      */
-    public function contribute(?string $notes = null): Transaction
+    public function contribute(?float $amount = null, ?string $notes = null): Transaction
     {
-        $amount = (int) ($this->allowed_allocation ?? 500);
+        $amount = $amount ?? (int) ($this->allowed_allocation ?? 500);
 
         if (! $this->hasSufficientBankBalance($amount)) {
             throw new \Exception(
@@ -140,6 +241,51 @@ class Member extends Model
                 'user_id' => $user->id,
                 'status' => 'pending',
                 'notes' => $notes ?? 'Member contribution',
+                'created_by' => auth()->id(),
+            ]);
+
+            $transaction->process();
+
+            return $transaction->fresh();
+        });
+    }
+
+    /**
+     * Make a loan repayment for the given loan using its installment amount.
+     * Debits member's bank, credits member's fund + master fund, and records the loan payment.
+     */
+    public function makeRepayment(Loan $loan): Transaction
+    {
+        if ($loan->status !== 'active') {
+            throw new \Exception('Only active loans can receive repayments.');
+        }
+
+        $amount = (float) ($loan->installment_amount ?? $loan->monthly_payment);
+        $remaining = (float) $loan->outstanding_balance;
+        $amount = min($amount, $remaining);
+
+        if (! $this->hasSufficientBankBalance($amount)) {
+            throw new \Exception(
+                'Insufficient bank account balance for repayment. ' .
+                'Required: $' . number_format($amount, 2) . ', ' .
+                'Available: $' . number_format((float) $this->bank_account_balance, 2) . '.'
+            );
+        }
+
+        return DB::transaction(function () use ($loan, $amount): Transaction {
+            $user = $this->user;
+
+            $transaction = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LNRPY'),
+                'transaction_date' => now(),
+                'type' => 'loan_repayment',
+                'from_account' => "Member Bank Account - {$user->user_code}",
+                'to_account' => "Member Fund Account - {$user->user_code}",
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => "Loan repayment for {$loan->loan_id}",
                 'created_by' => auth()->id(),
             ]);
 
@@ -309,13 +455,32 @@ class Member extends Model
     public function recalculateBankAccountBalanceFromTransactions(): float
     {
         $credits = $this->user->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import', 'allocation_from_parent', 'import_deposit'])
+            ->whereIn('type', ['master_to_user_bank', 'external_import', 'allocation_from_parent', 'import_deposit'])
             ->sum('amount');
         $debits = $this->user->transactions()
-            ->whereIn('type', ['contribution', 'allocation_to_dependant'])
+            ->whereIn('type', ['contribution', 'allocation_to_dependant', 'loan_repayment'])
             ->sum('amount');
         $balance = (float) $credits - (float) $debits;
         $this->update(['bank_account_balance' => $balance]);
+
+        return $balance;
+    }
+
+    /**
+     * Recalculate fund_account_balance from this member's user transactions.
+     * Credits: contribution, loan_repayment
+     * Debits: loan_disbursement
+     */
+    public function recalculateFundAccountBalanceFromTransactions(): float
+    {
+        $credits = $this->user->transactions()
+            ->whereIn('type', ['contribution', 'loan_repayment'])
+            ->sum('amount');
+        $debits = $this->user->transactions()
+            ->whereIn('type', ['loan_disbursement'])
+            ->sum('amount');
+        $balance = (float) $credits - (float) $debits;
+        $this->update(['fund_account_balance' => $balance]);
 
         return $balance;
     }

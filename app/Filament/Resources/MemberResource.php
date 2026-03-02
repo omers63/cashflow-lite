@@ -77,6 +77,12 @@ class MemberResource extends Resource
                             ->visible(fn (?Member $record) => $record !== null)
                             ->helperText('User cannot be changed after creation.'),
 
+                        Forms\Components\DatePicker::make('membership_date')
+                            ->label('Membership Date')
+                            ->default(now())
+                            ->required()
+                            ->helperText('The date this person became a member. Used for loan eligibility (min 1 year).'),
+
                         Forms\Components\Select::make('parent_id')
                             ->label('Parent member (optional)')
                             ->options(function (?Member $record) {
@@ -255,6 +261,10 @@ class MemberResource extends Resource
                         Infolists\Components\IconEntry::make('is_dependant')
                             ->label('Is dependant')
                             ->getStateUsing(fn (Member $record) => $record->isDependantMember()),
+                        Infolists\Components\TextEntry::make('membership_date')
+                            ->label('Member Since')
+                            ->date()
+                            ->helperText(fn (Member $record) => number_format($record->membershipYears(), 1) . ' year(s)'),
                     ])
                     ->columns(2),
 

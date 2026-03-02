@@ -4,9 +4,10 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\LoanResource\Pages;
 use App\Models\Loan;
-use App\Models\User;
-use Filament\Forms;
+use App\Models\Member;
 use Filament\Actions;
+use Filament\Forms;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -30,35 +31,51 @@ class LoanResource extends Resource
                 Components\Section::make('Loan Information')
                     ->schema([
                         Forms\Components\TextInput::make('loan_id')
-                            ->default(fn() => Loan::generateLoanId())
+                            ->default(fn () => Loan::generateLoanId())
                             ->disabled()
                             ->dehydrated()
                             ->required(),
 
-                        Forms\Components\Select::make('user_id')
-                            ->label('User')
-                            ->relationship('user', 'name')
+                        Forms\Components\Select::make('member_id')
+                            ->label('Member')
+                            ->options(fn () => Member::with('user')->get()->mapWithKeys(
+                                fn (Member $m) => [$m->id => $m->user ? "{$m->user->name} ({$m->user->user_code})" : "Member #{$m->id}"]
+                            ))
                             ->searchable()
                             ->preload()
                             ->required()
                             ->reactive()
                             ->afterStateUpdated(function ($state, Set $set) {
                                 if ($state) {
-                                    $user = User::find($state);
-                                    if ($user) {
-                                        $set('available_to_borrow', $user->available_to_borrow);
+                                    $member = Member::find($state);
+                                    if ($member) {
+                                        $set('user_id', $member->user_id);
+                                        $set('_fund_balance', (float) $member->fund_account_balance);
+                                        $set('_max_loan', $member->maxLoanAmount());
+                                        $set('_eligibility_errors', implode("\n", $member->loanEligibilityErrors()));
                                     }
                                 }
                             }),
 
-                        Forms\Components\TextInput::make('available_to_borrow')
-                            ->label('User Available to Borrow')
-                            ->prefix('$')
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->formatStateUsing(fn($state) => $state
-                                ? number_format($state, 2)
-                                : '0.00'),
+                        Forms\Components\Hidden::make('user_id'),
+
+                        Forms\Components\Placeholder::make('_fund_balance')
+                            ->label('Fund Account Balance')
+                            ->content(fn (Get $get) => '$' . number_format((float) ($get('_fund_balance') ?? 0), 2)),
+
+                        Forms\Components\Placeholder::make('_max_loan')
+                            ->label('Maximum Loan Amount (2× fund)')
+                            ->content(fn (Get $get) => '$' . number_format((float) ($get('_max_loan') ?? 0), 2)),
+
+                        Forms\Components\Placeholder::make('_eligibility_errors')
+                            ->label('Eligibility')
+                            ->content(function (Get $get) {
+                                $err = $get('_eligibility_errors');
+                                return $err ? $err : '✓ Eligible';
+                            })
+                            ->extraAttributes(fn (Get $get) => $get('_eligibility_errors')
+                                ? ['class' => 'text-danger-600 dark:text-danger-400']
+                                : ['class' => 'text-success-600 dark:text-success-400']),
 
                         Forms\Components\DatePicker::make('origination_date')
                             ->default(now())
@@ -69,17 +86,18 @@ class LoanResource extends Resource
                             ->numeric()
                             ->prefix('$')
                             ->required()
-                            ->step(0.01)
-                            ->minValue(0.01)
+                            ->step(1)
+                            ->minValue(1000)
+                            ->maxValue(300000)
                             ->reactive()
-                            ->afterStateUpdated(
-                                fn($state, Set $set, Get $get) =>
-                                $set('monthly_payment', Loan::calculateMonthlyPayment(
-                                    $state ?? 0,
-                                    $get('interest_rate') ?? 0,
-                                    $get('term_months') ?? 12
-                                ))
-                            ),
+                            ->helperText(function (Get $get) {
+                                $amount = (float) ($get('original_amount') ?? 0);
+                                $tier = Member::loanTierFor($amount);
+                                if (! $tier) {
+                                    return $amount > 0 ? 'Amount outside loan tier range ($1,000–$300,000)' : null;
+                                }
+                                return 'Tier: $' . number_format($tier['installment']) . '/installment, maturity balance: $' . number_format($tier['maturity_balance']);
+                            }),
 
                         Forms\Components\TextInput::make('interest_rate')
                             ->label('Annual Interest Rate (%)')
@@ -89,15 +107,7 @@ class LoanResource extends Resource
                             ->minValue(0)
                             ->maxValue(100)
                             ->suffix('%')
-                            ->reactive()
-                            ->afterStateUpdated(
-                                fn($state, Set $set, Get $get) =>
-                                $set('monthly_payment', Loan::calculateMonthlyPayment(
-                                    $get('original_amount') ?? 0,
-                                    $state ?? 0,
-                                    $get('term_months') ?? 12
-                                ))
-                            ),
+                            ->default(0),
 
                         Forms\Components\TextInput::make('term_months')
                             ->label('Term (Months)')
@@ -105,23 +115,12 @@ class LoanResource extends Resource
                             ->required()
                             ->minValue(1)
                             ->maxValue(360)
-                            ->default(12)
-                            ->reactive()
-                            ->afterStateUpdated(
-                                fn($state, Set $set, Get $get) =>
-                                $set('monthly_payment', Loan::calculateMonthlyPayment(
-                                    $get('original_amount') ?? 0,
-                                    $get('interest_rate') ?? 0,
-                                    $state ?? 12
-                                ))
-                            ),
+                            ->default(12),
 
-                        Forms\Components\TextInput::make('monthly_payment')
-                            ->label('Monthly Payment')
-                            ->numeric()
-                            ->prefix('$')
-                            ->disabled()
-                            ->dehydrated(),
+                        Forms\Components\Toggle::make('is_emergency')
+                            ->label('Emergency Request')
+                            ->helperText('Emergency loans are prioritised for approval.')
+                            ->default(false),
 
                         Forms\Components\Select::make('status')
                             ->options([
@@ -151,8 +150,15 @@ class LoanResource extends Resource
                     ->sortable()
                     ->copyable(),
 
-                Tables\Columns\TextColumn::make('user.name')
+                Tables\Columns\TextColumn::make('member.user.name')
+                    ->label('Member')
                     ->searchable()
+                    ->sortable(),
+
+                Tables\Columns\IconColumn::make('is_emergency')
+                    ->label('Emergency')
+                    ->boolean()
+                    ->trueColor('danger')
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('origination_date')
@@ -164,18 +170,8 @@ class LoanResource extends Resource
                     ->money('USD')
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('interest_rate')
-                    ->label('Rate')
-                    ->suffix('%')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('term_months')
-                    ->label('Term')
-                    ->suffix(' mo')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('monthly_payment')
-                    ->label('Payment')
+                Tables\Columns\TextColumn::make('installment_amount')
+                    ->label('Installment')
                     ->money('USD')
                     ->sortable(),
 
@@ -203,9 +199,9 @@ class LoanResource extends Resource
                     ->label('Next Payment')
                     ->date()
                     ->sortable()
-                    ->color(fn($record) => $record->isDelinquent() ? 'danger' : null),
+                    ->color(fn ($record) => $record->isDelinquent() ? 'danger' : null),
             ])
-            ->defaultSort('origination_date', 'desc')
+            ->defaultSort('created_at', 'desc')
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
                     ->options([
@@ -217,44 +213,62 @@ class LoanResource extends Resource
                     ])
                     ->multiple(),
 
-                Tables\Filters\SelectFilter::make('user')
-                    ->relationship('user', 'name')
+                Tables\Filters\SelectFilter::make('member')
+                    ->relationship('member.user', 'name')
                     ->searchable()
                     ->preload(),
 
+                Tables\Filters\TernaryFilter::make('is_emergency')
+                    ->label('Emergency'),
+
                 Tables\Filters\Filter::make('delinquent')
                     ->label('Delinquent')
-                    ->query(fn($query) => $query->where('status', 'active')
+                    ->query(fn ($query) => $query->where('status', 'active')
                         ->where('next_payment_date', '<', now())),
 
                 Tables\Filters\Filter::make('due_soon')
                     ->label('Due in 7 Days')
-                    ->query(fn($query) => $query->where('status', 'active')
+                    ->query(fn ($query) => $query->where('status', 'active')
                         ->whereBetween('next_payment_date', [now(), now()->addDays(7)])),
             ])
             ->recordActions([
                 Actions\ViewAction::make(),
                 Actions\EditAction::make()
-                    ->visible(fn($record) => $record->status === 'pending'),
+                    ->visible(fn ($record) => $record->status === 'pending'),
 
                 Actions\Action::make('approve')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->action(function (Loan $record) {
-                        $record->approve(auth()->id());
-
-                        // Create disbursement transaction
-                        // This should be done in your service layer
+                    ->modalHeading(fn (Loan $record) => 'Approve loan ' . $record->loan_id . '?')
+                    ->modalDescription(function (Loan $record) {
+                        $tier = Member::loanTierFor((float) $record->original_amount);
+                        $desc = 'Amount: $' . number_format((float) $record->original_amount, 2);
+                        if ($tier) {
+                            $desc .= "\nInstallment: \$" . number_format($tier['installment'], 2)
+                                . "\nMaturity fund balance: \$" . number_format($tier['maturity_balance'], 2);
+                        }
+                        return $desc;
                     })
-                    ->visible(fn($record) => $record->status === 'pending'),
+                    ->action(function (Loan $record) {
+                        try {
+                            $record->approve(auth()->id());
+                            Notification::make()
+                                ->title('Loan approved and disbursed')
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()->title($e->getMessage())->danger()->send();
+                        }
+                    })
+                    ->visible(fn ($record) => $record->status === 'pending'),
 
                 Actions\Action::make('view_schedule')
                     ->icon('heroicon-o-calendar')
                     ->color('info')
                     ->modalHeading('Amortization Schedule')
-                    ->modalContent(fn($record) => view('filament.modals.amortization-schedule', [
-                        'schedule' => $record->generateAmortizationSchedule()
+                    ->modalContent(fn ($record) => view('filament.modals.amortization-schedule', [
+                        'schedule' => $record->generateAmortizationSchedule(),
                     ]))
                     ->modalSubmitAction(false),
             ])
@@ -273,13 +287,13 @@ class LoanResource extends Resource
                     ->schema([
                         Infolists\Components\TextEntry::make('loan_id')
                             ->copyable(),
-                        Infolists\Components\TextEntry::make('user.name')
-                            ->label('Borrower'),
+                        Infolists\Components\TextEntry::make('member.user.name')
+                            ->label('Member'),
                         Infolists\Components\TextEntry::make('origination_date')
                             ->date(),
                         Infolists\Components\TextEntry::make('status')
                             ->badge()
-                            ->color(fn($state) => match ($state) {
+                            ->color(fn ($state) => match ($state) {
                                 'pending' => 'warning',
                                 'active' => 'success',
                                 'paid_off' => 'primary',
@@ -287,20 +301,27 @@ class LoanResource extends Resource
                                 'cancelled' => 'secondary',
                                 default => 'secondary',
                             }),
+                        Infolists\Components\IconEntry::make('is_emergency')
+                            ->label('Emergency')
+                            ->boolean(),
                         Infolists\Components\TextEntry::make('original_amount')
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('outstanding_balance')
                             ->money('USD')
-                            ->color(fn($record) => $record->outstanding_balance > 0 ? 'warning' : 'success'),
+                            ->color(fn ($record) => $record->outstanding_balance > 0 ? 'warning' : 'success'),
                         Infolists\Components\TextEntry::make('interest_rate')
                             ->suffix('%'),
                         Infolists\Components\TextEntry::make('term_months')
                             ->suffix(' months'),
-                        Infolists\Components\TextEntry::make('monthly_payment')
+                        Infolists\Components\TextEntry::make('installment_amount')
+                            ->label('Installment Amount')
+                            ->money('USD'),
+                        Infolists\Components\TextEntry::make('maturity_fund_balance')
+                            ->label('Maturity Fund Balance')
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('next_payment_date')
                             ->date()
-                            ->color(fn($record) => $record->isDelinquent() ? 'danger' : null),
+                            ->color(fn ($record) => $record->isDelinquent() ? 'danger' : null),
                     ])
                     ->columns(2),
 
@@ -317,11 +338,29 @@ class LoanResource extends Resource
                             ->color('success'),
                         Infolists\Components\TextEntry::make('payments')
                             ->label('Payments Made')
-                            ->state(fn($record) => $record->payments()->count()),
+                            ->state(fn ($record) => $record->payments()->count()),
                         Infolists\Components\TextEntry::make('remaining_term')
                             ->suffix(' months'),
                     ])
                     ->columns(3),
+
+                Components\Section::make('Maturity Status')
+                    ->schema([
+                        Infolists\Components\IconEntry::make('is_matured')
+                            ->label('Loan Matured')
+                            ->getStateUsing(fn (Loan $record) => $record->isMatured())
+                            ->boolean(),
+                        Infolists\Components\TextEntry::make('maturity_fund_target')
+                            ->label('Required Fund Balance')
+                            ->getStateUsing(fn (Loan $record) => '$' . number_format((float) ($record->maturity_fund_balance ?? 0), 2)),
+                        Infolists\Components\TextEntry::make('current_fund_balance')
+                            ->label('Current Fund Balance')
+                            ->getStateUsing(fn (Loan $record) => $record->member
+                                ? '$' . number_format((float) $record->member->fund_account_balance, 2)
+                                : '—'),
+                    ])
+                    ->columns(3)
+                    ->visible(fn (Loan $record) => in_array($record->status, ['active', 'paid_off'])),
 
                 Components\Section::make('Approval Information')
                     ->schema([
@@ -333,7 +372,7 @@ class LoanResource extends Resource
                             ->columnSpanFull(),
                     ])
                     ->columns(2)
-                    ->visible(fn($record) => $record->approved_by),
+                    ->visible(fn ($record) => $record->approved_by),
             ]);
     }
 
@@ -354,15 +393,12 @@ class LoanResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $delinquent = static::getModel()::where('status', 'active')
-            ->where('next_payment_date', '<', now())
-            ->count();
-
-        return $delinquent > 0 ? $delinquent : null;
+        $pending = static::getModel()::where('status', 'pending')->count();
+        return $pending > 0 ? (string) $pending : null;
     }
 
     public static function getNavigationBadgeColor(): ?string
     {
-        return 'danger';
+        return 'warning';
     }
 }
