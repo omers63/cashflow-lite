@@ -184,6 +184,65 @@ class ViewMember extends ViewRecord
                     }
                 }),
 
+            Actions\Action::make('import_funds')
+                ->label('Import Funds')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('warning')
+                ->form([
+                    Forms\Components\FileUpload::make('import_file')
+                        ->label('File (CSV / XLS / XLSX)')
+                        ->helperText('Two columns required: Transaction Date, Amount. First row is the header and will be skipped.')
+                        ->required()
+                        ->acceptedFileTypes([
+                            'text/csv',
+                            'text/plain',
+                            'application/csv',
+                            'application/vnd.ms-excel',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            'application/octet-stream',
+                        ])
+                        ->disk('local')
+                        ->directory('imports/member-funds')
+                        ->visibility('private'),
+                    Forms\Components\Select::make('date_format')
+                        ->label('Date Format')
+                        ->required()
+                        ->options([
+                            'Y-m-d'  => 'YYYY-MM-DD  (e.g. 2026-01-15)',
+                            'd/m/Y'  => 'DD/MM/YYYY  (e.g. 15/01/2026)',
+                            'm/d/Y'  => 'MM/DD/YYYY  (e.g. 01/15/2026)',
+                            'd-m-Y'  => 'DD-MM-YYYY  (e.g. 15-01-2026)',
+                            'm-d-Y'  => 'MM-DD-YYYY  (e.g. 01-15-2026)',
+                            'd/m/y'  => 'DD/MM/YY    (e.g. 15/01/26)',
+                            'm/d/y'  => 'MM/DD/YY    (e.g. 01/15/26)',
+                            'auto'   => 'Auto-detect',
+                        ])
+                        ->default('Y-m-d')
+                        ->helperText('For Excel files with native date cells the format is detected automatically.'),
+                ])
+                ->action(function (array $data): void {
+                    $member = $this->record->fresh();
+                    $path = $data['import_file'];
+                    $absolutePath = \Illuminate\Support\Facades\Storage::disk('local')->path($path);
+                    try {
+                        $results = $member->importFunds($absolutePath, $data['date_format'] ?? 'Y-m-d');
+                        $this->record = $member->fresh();
+                        $this->refreshInfolist();
+                        $this->dispatch('refreshTransactions');
+                        \Illuminate\Support\Facades\Storage::disk('local')->delete($path);
+                        $body = $results['imported'] . ' row(s) imported.'
+                            . ($results['skipped'] > 0 ? ' ' . $results['skipped'] . ' skipped.' : '')
+                            . (count($results['errors']) > 0 ? ' Errors: ' . implode('; ', $results['errors']) : '');
+                        Notification::make()
+                            ->title('Import complete')
+                            ->body($body)
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()->title($e->getMessage())->danger()->send();
+                    }
+                }),
+
             Actions\Action::make('recalculate_balance')
                 ->label('Recalculate Balance')
                 ->icon('heroicon-o-calculator')

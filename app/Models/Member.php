@@ -149,6 +149,154 @@ class Member extends Model
         });
     }
 
+    /**
+     * Import funds from a CSV, XLS, or XLSX file (two columns: Transaction Date, Amount, header on row 1).
+     * For each data row, two transactions are posted at the row's date:
+     *   1. external_import (assigned to member) — credits master bank + credits member's bank
+     *   2. contribution — debits member's bank, credits member's fund + master fund
+     *
+     * @param  string  $absolutePath  Absolute filesystem path to the uploaded file.
+     * @param  string  $dateFormat    PHP date format string (e.g. 'Y-m-d', 'd/m/Y') or 'auto' to let Carbon guess.
+     *                                Ignored for Excel cells that already carry a native date type.
+     * @return array{imported: int, skipped: int, errors: string[]}
+     */
+    public function importFunds(string $absolutePath, string $dateFormat = 'Y-m-d'): array
+    {
+        $results = ['imported' => 0, 'skipped' => 0, 'errors' => []];
+
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($absolutePath);
+        $sheet = $spreadsheet->getActiveSheet();
+        $highestRow = $sheet->getHighestDataRow();
+
+        if ($highestRow <= 1) {
+            return $results; // header only or empty
+        }
+
+        $user = $this->user;
+
+        DB::transaction(function () use ($sheet, $highestRow, $user, $dateFormat, &$results): void {
+            for ($rowNum = 2; $rowNum <= $highestRow; $rowNum++) {
+                $dateCell   = $sheet->getCell("A{$rowNum}");
+                $amountCell = $sheet->getCell("B{$rowNum}");
+
+                // Skip completely empty rows
+                $rawDate   = $dateCell->getValue();
+                $rawAmount = $amountCell->getValue();
+                if ($rawDate === null && $rawAmount === null) {
+                    continue;
+                }
+
+                // ── Resolve date ──────────────────────────────────────────────
+                $txDate = null;
+                if (\PhpOffice\PhpSpreadsheet\Shared\Date::isDateTime($dateCell) && is_numeric($rawDate)) {
+                    // Native Excel date cell — convert serial to Carbon directly
+                    $txDate = \Carbon\Carbon::instance(
+                        \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($rawDate)
+                    );
+                } else {
+                    $dateStr = trim((string) $dateCell->getFormattedValue());
+                    if ($dateStr === '') {
+                        $results['skipped']++;
+                        $results['errors'][] = "Row {$rowNum}: empty date";
+                        continue;
+                    }
+                    try {
+                        $txDate = self::parseDateFlexible($dateStr, $dateFormat);
+                    } catch (\Exception $e) {
+                        $results['skipped']++;
+                        $results['errors'][] = "Row {$rowNum}: cannot parse date '{$dateStr}' with format '{$dateFormat}'";
+                        continue;
+                    }
+                }
+
+                // ── Resolve amount ────────────────────────────────────────────
+                $cleanAmount = str_replace(['$', ',', ' '], '', (string) $amountCell->getFormattedValue());
+                $amount = (float) $cleanAmount;
+                if ($amount <= 0) {
+                    $results['skipped']++;
+                    $results['errors'][] = "Row {$rowNum}: invalid amount '{$rawAmount}'";
+                    continue;
+                }
+
+                // Step 1 — credit master bank account (external import)
+                $extImportTx = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('EXT'),
+                    'transaction_date' => $txDate,
+                    'type' => 'external_import',
+                    'from_account' => 'External Source',
+                    'to_account' => 'Master Bank Account',
+                    'amount' => $amount,
+                    'user_id' => $user->id,
+                    'status' => 'pending',
+                    'notes' => 'Fund import – external receipt',
+                    'created_by' => auth()->id(),
+                ]);
+                $extImportTx->process();
+
+                // Step 2 — debit member's bank, credit member's fund + master fund
+                $contribTx = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('CTB'),
+                    'transaction_date' => $txDate,
+                    'type' => 'contribution',
+                    'from_account' => "Member Bank Account - {$user->user_code}",
+                    'to_account' => "Member Fund Account - {$user->user_code}",
+                    'amount' => $amount,
+                    'user_id' => $user->id,
+                    'status' => 'pending',
+                    'notes' => 'Fund import – contribution',
+                    'created_by' => auth()->id(),
+                ]);
+                $contribTx->process();
+
+                $results['imported']++;
+            }
+        });
+
+        return $results;
+    }
+
+    /**
+     * Parse a date string flexibly: try the given format first, then the same format with
+     * separator variants (swapping / . - and spaces), then fall back to Carbon::parse().
+     * This handles cases where the user selects "d-m-Y" but the file actually uses "d/m/Y".
+     *
+     * @throws \Exception if the date cannot be parsed by any strategy
+     */
+    private static function parseDateFlexible(string $dateStr, string $format): \Carbon\Carbon
+    {
+        if ($format === 'auto') {
+            return \Carbon\Carbon::parse($dateStr);
+        }
+
+        // Try exact format first
+        $parsed = \DateTime::createFromFormat($format, $dateStr);
+        if ($parsed !== false) {
+            return \Carbon\Carbon::instance($parsed);
+        }
+
+        // Build separator variants: replace any separator in the format with each alternative
+        $separators = ['/', '-', '.', ' '];
+        foreach ($separators as $sep) {
+            // Replace the first non-alpha, non-Y/m/d character in the format with $sep
+            $altFormat = preg_replace('/[\/\-\. ]/', $sep, $format);
+            $altDate   = preg_replace('/[\/\-\. ]/', $sep, $dateStr);
+            if ($altFormat === $format && $altDate === $dateStr) {
+                continue; // no change, already tried above
+            }
+            $parsed = \DateTime::createFromFormat($altFormat, $altDate);
+            if ($parsed !== false) {
+                return \Carbon\Carbon::instance($parsed);
+            }
+        }
+
+        // Last resort: let Carbon guess
+        try {
+            return \Carbon\Carbon::parse($dateStr);
+        } catch (\Exception $e) {
+            throw new \Exception("Cannot parse date '{$dateStr}'");
+        }
+    }
+
     public function updateOutstandingLoans(): void
     {
         $total = $this->user->activeLoans()->sum('outstanding_balance');
@@ -161,7 +309,7 @@ class Member extends Model
     public function recalculateBankAccountBalanceFromTransactions(): float
     {
         $credits = $this->user->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import', 'allocation_from_parent'])
+            ->whereIn('type', ['master_to_user_bank', 'loan_disbursement', 'external_import', 'allocation_from_parent', 'import_deposit'])
             ->sum('amount');
         $debits = $this->user->transactions()
             ->whereIn('type', ['contribution', 'allocation_to_dependant'])

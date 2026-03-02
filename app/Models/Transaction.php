@@ -104,6 +104,9 @@ class Transaction extends Model
                 case 'allocation_from_parent':
                     $this->reverseAllocationFromParent();
                     break;
+                case 'import_deposit':
+                    $this->reverseImportDeposit();
+                    break;
             }
         });
     }
@@ -240,6 +243,9 @@ class Transaction extends Model
                 case 'adjustment':
                     $this->processAdjustment();
                     break;
+                case 'import_deposit':
+                    $this->processImportDeposit();
+                    break;
             }
 
             $this->update(['status' => 'complete']);
@@ -294,6 +300,11 @@ class Transaction extends Model
     {
         $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
         $masterBank->increment('balance', $this->amount);
+
+        // When assigned to a member, also credit their bank account.
+        if ($this->user_id && $this->user?->member) {
+            $this->user->creditBankAccount($this->amount);
+        }
     }
 
     private function processMasterToUserBank(): void
@@ -358,6 +369,18 @@ class Transaction extends Model
                 'amount' => $this->amount,
             ])
             ->log('Manual adjustment processed');
+    }
+
+    /** Credit the member's bank account from an external fund import (no master account effect). */
+    private function processImportDeposit(): void
+    {
+        $this->user->creditBankAccount($this->amount);
+    }
+
+    /** Reverse an import_deposit by debiting the member's bank account. */
+    private function reverseImportDeposit(): void
+    {
+        $this->user->debitBankAccount($this->amount);
     }
 
     // Scopes
