@@ -286,7 +286,11 @@ class LoanResource extends Resource
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->striped()
+            ->emptyStateHeading('No loans yet')
+            ->emptyStateDescription('Loan applications will appear here once created.')
+            ->emptyStateIcon('heroicon-o-banknotes');
     }
 
     public static function infolist(Schema $schema): Schema

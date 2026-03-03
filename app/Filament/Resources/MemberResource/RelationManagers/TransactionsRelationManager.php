@@ -201,8 +201,18 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->query(function ($query, array $data) {
                         return $query
-                            ->when($data['from'], fn($q, $date) => $q->whereDate('transaction_date', '>=', $date))
-                            ->when($data['to'], fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
+                            ->when($data['from'] ?? null, fn($q, $date) => $q->whereDate('transaction_date', '>=', $date))
+                            ->when($data['to'] ?? null, fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if (! empty($data['from'])) {
+                            $indicators[] = 'From: ' . \Carbon\Carbon::parse($data['from'])->toFormattedDateString();
+                        }
+                        if (! empty($data['to'])) {
+                            $indicators[] = 'To: ' . \Carbon\Carbon::parse($data['to'])->toFormattedDateString();
+                        }
+                        return $indicators;
                     }),
             ])
             ->recordActions([

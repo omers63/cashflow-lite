@@ -42,10 +42,10 @@
         </div>
     </x-filament::section>
 
-    {{-- Users Bank & Fund Accounts --}}
+    {{-- Members Bank & Fund Accounts --}}
     <x-filament::section class="mt-6">
-        <x-slot name="heading">Users Bank Accounts & Fund Accounts</x-slot>
-        <x-slot name="description">User Bank Accounts receive distributions from Master Bank. User Fund Accounts track contributions and loan repayments.</x-slot>
+        <x-slot name="heading">Members Bank Accounts & Fund Accounts</x-slot>
+        <x-slot name="description">Member Bank Accounts receive distributions from Master Bank. Member Fund Accounts track contributions and loan repayments.</x-slot>
 
         {{ $this->table }}
     </x-filament::section>

@@ -97,12 +97,12 @@ class UserResource extends Resource
 
                 Tables\Columns\TextColumn::make('role')
                     ->badge()
-                    ->color(fn ($state) => match ($state) {
+                    ->color(fn($state) => match ($state) {
                         'super_admin' => 'danger',
                         'admin' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn ($state) => match ($state) {
+                    ->formatStateUsing(fn($state) => match ($state) {
                         'super_admin' => 'Super Admin',
                         'admin' => 'Admin',
                         default => 'User',
@@ -138,22 +138,22 @@ class UserResource extends Resource
                     Actions\EditAction::make()
                         ->label('Edit')
                         ->tooltip('Edit'),
-                    
+
                     Actions\Action::make('suspend')
                         ->label('Suspend')
                         ->tooltip('Suspend')
                         ->icon('heroicon-o-no-symbol')
-                    ->requiresConfirmation()
-                    ->schema([
-                        Forms\Components\Textarea::make('reason')
-                            ->required()
-                            ->label('Suspension Reason'),
-                    ])
+                        ->requiresConfirmation()
+                        ->schema([
+                            Forms\Components\Textarea::make('reason')
+                                ->required()
+                                ->label('Suspension Reason'),
+                        ])
                         ->action(function (User $record, array $data) {
                             $record->suspend($data['reason']);
                         })
                         ->visible(fn(User $record) => $record->status === 'active'),
-                    
+
                     Actions\Action::make('activate')
                         ->label('Activate')
                         ->tooltip('Activate')
@@ -169,7 +169,11 @@ class UserResource extends Resource
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->striped()
+            ->emptyStateHeading('No users yet')
+            ->emptyStateDescription('Create the first user to get started.')
+            ->emptyStateIcon('heroicon-o-users');
     }
 
     public static function infolist(Schema $schema): Schema

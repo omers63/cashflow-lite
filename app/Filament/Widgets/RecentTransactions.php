@@ -38,7 +38,8 @@ class RecentTransactions extends BaseWidget
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
                 Tables\Columns\TextColumn::make('amount')
                     ->money('USD'),
-                Tables\Columns\TextColumn::make('user.name'),
+                Tables\Columns\TextColumn::make('user.name')
+                    ->label('Member'),
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
                     ->color(fn($state) => match ($state) {

@@ -114,7 +114,11 @@ class ReconciliationResource extends Resource
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->striped()
+            ->emptyStateHeading('No reconciliations yet')
+            ->emptyStateDescription('Run daily reconciliation to generate records here.')
+            ->emptyStateIcon('heroicon-o-clipboard-document-check');
     }
 
     public static function infolist(Schema $schema): Schema

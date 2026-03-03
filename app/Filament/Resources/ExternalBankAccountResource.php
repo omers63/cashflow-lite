@@ -113,7 +113,11 @@ class ExternalBankAccountResource extends Resource
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->striped()
+            ->emptyStateHeading('No external bank accounts')
+            ->emptyStateDescription('Create an external bank account to begin importing transactions.')
+            ->emptyStateIcon('heroicon-o-building-library');
     }
 
     public static function getRelations(): array

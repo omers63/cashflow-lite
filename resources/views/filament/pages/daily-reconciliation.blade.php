@@ -46,7 +46,7 @@
                         <p class="text-lg font-semibold">${{ number_format($systemTotals['master_fund'], 2) }}</p>
                     </div>
                     <div>
-                        <p class="text-sm text-gray-500">User Banks Total</p>
+                        <p class="text-sm text-gray-500">Member Banks Total</p>
                         <p class="text-lg font-semibold">${{ number_format($systemTotals['user_banks_total'], 2) }}</p>
                     </div>
                     <div>

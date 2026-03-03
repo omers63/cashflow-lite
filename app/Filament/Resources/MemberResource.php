@@ -245,7 +245,11 @@ class MemberResource extends Resource
                 Actions\BulkActionGroup::make([
                     Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->striped()
+            ->emptyStateHeading('No members yet')
+            ->emptyStateDescription('Create the first member to get started.')
+            ->emptyStateIcon('heroicon-o-user-group');
     }
 
     public static function infolist(Schema $schema): Schema
@@ -331,5 +335,10 @@ class MemberResource extends Resource
     public static function getPluralModelLabel(): string
     {
         return 'Members';
+    }
+
+    public static function getNavigationBadge(): ?string
+    {
+        return (string) static::getModel()::count();
     }
 }

@@ -13,7 +13,7 @@ class DailyReconciliation extends Page
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calculator';
     protected string $view = 'filament.pages.daily-reconciliation';
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
-    protected static ?int $navigationSort = 10;
+    protected static ?int $navigationSort = 3;
 
     public ?array $latestReconciliation = null;
     public ?array $systemTotals = null;

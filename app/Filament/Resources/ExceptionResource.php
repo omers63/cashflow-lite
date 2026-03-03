@@ -134,10 +134,24 @@ class ExceptionResource extends Resource
                     ->query(fn($query) => $query->open()),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make(),
-                Actions\DeleteAction::make(),
-            ]);
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit'),
+                    Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->tooltip('Delete'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
+            ])
+            ->striped()
+            ->emptyStateHeading('No exceptions found')
+            ->emptyStateDescription('Exceptions will appear here when reconciliation or other checks detect issues.')
+            ->emptyStateIcon('heroicon-o-exclamation-triangle');
     }
 
     public static function infolist(Schema $schema): Schema

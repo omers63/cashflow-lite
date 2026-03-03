@@ -53,11 +53,11 @@ class ViewMember extends ViewRecord
                 ->tooltip('Set Allowances')
                 ->icon('heroicon-o-adjustments-horizontal')
                 ->link()
-                ->visible(fn () => $member->isParentMember())
+                ->visible(fn() => $member->isParentMember())
                 ->form(function () use ($member, $dependants) {
                     $allocationOptions = array_combine(
                         \App\Models\Member::ALLOCATION_OPTIONS,
-                        array_map(fn ($v) => '$' . number_format($v, 0), \App\Models\Member::ALLOCATION_OPTIONS)
+                        array_map(fn($v) => '$' . number_format($v, 0), \App\Models\Member::ALLOCATION_OPTIONS)
                     );
                     $fields = [
                         Forms\Components\Select::make("allowance_{$member->id}")
@@ -92,20 +92,20 @@ class ViewMember extends ViewRecord
                 ->tooltip('Allocate to Dependant')
                 ->icon('heroicon-o-banknotes')
                 ->link()
-                ->visible(fn () => $member->isParentMember())
+                ->visible(fn() => $member->isParentMember())
                 ->form([
                     Forms\Components\Select::make('dependent_id')
                         ->label('Dependant')
                         ->options(
                             $dependants->mapWithKeys(
-                                fn (Member $d) => [$d->id => $d->user ? "{$d->user->name} ({$d->user->user_code})" : "Member #{$d->id}"]
+                                fn(Member $d) => [$d->id => $d->user ? "{$d->user->name} ({$d->user->user_code})" : "Member #{$d->id}"]
                             )
                         )
                         ->required()
                         ->live()
                         ->helperText(function ($get) use ($member, $dependants) {
                             $dep = $dependants->find((int) $get('dependent_id'));
-                            if (! $dep) {
+                            if (!$dep) {
                                 return null;
                             }
                             $amount = (int) ($dep->allowed_allocation ?? 500);
@@ -122,7 +122,7 @@ class ViewMember extends ViewRecord
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $dependent = Member::query()->find((int) $data['dependent_id']);
-                    if (! $dependent || $dependent->parent_id !== $member->id) {
+                    if (!$dependent || $dependent->parent_id !== $member->id) {
                         Notification::make()->title('Invalid dependant')->danger()->send();
                         return;
                     }
@@ -151,12 +151,12 @@ class ViewMember extends ViewRecord
                 }),
             Actions\Action::make('contribute')
                 ->label('')
-                ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : 'Contribute')
+                ->tooltip(fn() => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : 'Contribute')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->link()
-                ->visible(fn () => ! $member->hasActiveLoan())
-                ->disabled(fn () => (float) $member->bank_account_balance <= 0)
-                ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : null)
+                ->visible(fn() => !$member->hasActiveLoan())
+                ->disabled(fn() => (float) $member->bank_account_balance <= 0)
+                ->tooltip(fn() => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : null)
                 ->form(function () use ($member) {
                     $default = (int) ($member->allowed_allocation ?? 500);
                     $bank = (float) $member->bank_account_balance;
@@ -195,7 +195,7 @@ class ViewMember extends ViewRecord
                 ->tooltip('Make Repayment')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->link()
-                ->visible(fn () => $member->hasActiveLoan())
+                ->visible(fn() => $member->hasActiveLoan())
                 ->form(function () use ($member) {
                     $activeLoans = $member->loans()->where('status', 'active')->with('member')->get();
                     $options = $activeLoans->mapWithKeys(function (\App\Models\Loan $loan) {
@@ -215,7 +215,7 @@ class ViewMember extends ViewRecord
                             ->live()
                             ->helperText(function ($get) use ($member, $activeLoans) {
                                 $loan = $activeLoans->find((int) $get('loan_id'));
-                                if (! $loan) {
+                                if (!$loan) {
                                     return null;
                                 }
                                 $installment = min((float) ($loan->installment_amount ?? $loan->monthly_payment), (float) $loan->outstanding_balance);
@@ -230,7 +230,7 @@ class ViewMember extends ViewRecord
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $loan = \App\Models\Loan::find($data['loan_id']);
-                    if (! $loan || $loan->member_id !== $member->id) {
+                    if (!$loan || $loan->member_id !== $member->id) {
                         Notification::make()->title('Invalid loan')->danger()->send();
                         return;
                     }
@@ -260,7 +260,7 @@ class ViewMember extends ViewRecord
                     $errors = $member->loanEligibilityErrors();
                     $fields = [];
 
-                    if (! empty($errors)) {
+                    if (!empty($errors)) {
                         $fields[] = Forms\Components\Placeholder::make('_eligibility_warning')
                             ->label('Not Eligible')
                             ->content(implode("\n", $errors))
@@ -283,7 +283,7 @@ class ViewMember extends ViewRecord
                         ->helperText(function ($get) {
                             $amount = (float) ($get('amount') ?? 0);
                             $tier = Member::loanTierFor($amount);
-                            if (! $tier) {
+                            if (!$tier) {
                                 return $amount > 0 ? 'Amount outside tier range ($1,000–$300,000)' : null;
                             }
                             return 'Installment: $' . number_format($tier['installment'])
@@ -312,7 +312,7 @@ class ViewMember extends ViewRecord
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $errors = $member->loanEligibilityErrors();
-                    if (! empty($errors)) {
+                    if (!empty($errors)) {
                         Notification::make()->title('Not eligible for a loan')->body(implode("\n", $errors))->danger()->send();
                         return;
                     }
@@ -371,14 +371,14 @@ class ViewMember extends ViewRecord
                         ->label('Date Format')
                         ->required()
                         ->options([
-                            'Y-m-d'  => 'YYYY-MM-DD  (e.g. 2026-01-15)',
-                            'd/m/Y'  => 'DD/MM/YYYY  (e.g. 15/01/2026)',
-                            'm/d/Y'  => 'MM/DD/YYYY  (e.g. 01/15/2026)',
-                            'd-m-Y'  => 'DD-MM-YYYY  (e.g. 15-01-2026)',
-                            'm-d-Y'  => 'MM-DD-YYYY  (e.g. 01-15-2026)',
-                            'd/m/y'  => 'DD/MM/YY    (e.g. 15/01/26)',
-                            'm/d/y'  => 'MM/DD/YY    (e.g. 01/15/26)',
-                            'auto'   => 'Auto-detect',
+                            'Y-m-d' => 'YYYY-MM-DD  (e.g. 2026-01-15)',
+                            'd/m/Y' => 'DD/MM/YYYY  (e.g. 15/01/2026)',
+                            'm/d/Y' => 'MM/DD/YYYY  (e.g. 01/15/2026)',
+                            'd-m-Y' => 'DD-MM-YYYY  (e.g. 15-01-2026)',
+                            'm-d-Y' => 'MM-DD-YYYY  (e.g. 01-15-2026)',
+                            'd/m/y' => 'DD/MM/YY    (e.g. 15/01/26)',
+                            'm/d/y' => 'MM/DD/YY    (e.g. 01/15/26)',
+                            'auto' => 'Auto-detect',
                         ])
                         ->default('Y-m-d')
                         ->helperText('For Excel files with native date cells the format is detected automatically.'),
