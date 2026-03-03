@@ -63,27 +63,31 @@ class ImportsRelationManager extends RelationManager
                     ->label('Imported to Master'),
             ])
             ->recordActions([
-                Actions\Action::make('import_to_master')
-                    ->label('Import to Master')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->color('success')
+                Actions\ActionGroup::make([
+                    Actions\Action::make('import_to_master')
+                        ->label('Import to Master')
+                        ->tooltip('Import to Master')
+                        ->icon('heroicon-o-arrow-down-tray')
                     ->requiresConfirmation()
                     ->modalHeading('Import to Master Bank')
                     ->modalDescription(fn (ExternalBankImport $record) => "Post this transaction (\${$record->amount}) to the Master Bank Account?")
-                    ->action(function (ExternalBankImport $record): void {
-                        DB::transaction(function () use ($record): void {
-                            $record->postToMasterBank();
-                        });
-                        $owner = $this->getOwnerRecord();
-                        $owner->refresh();
-                        $this->dispatch('refreshExternalBankAccountRecord', accountId: $owner->getKey());
-                        Notification::make()
-                            ->title('Imported to Master')
-                            ->body("Transaction of \${$record->amount} posted to Master Bank.")
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn (ExternalBankImport $record) => ! $record->imported_to_master && ! $record->is_duplicate),
+                        ->action(function (ExternalBankImport $record): void {
+                            DB::transaction(function () use ($record): void {
+                                $record->postToMasterBank();
+                            });
+                            $owner = $this->getOwnerRecord();
+                            $owner->refresh();
+                            $this->dispatch('refreshExternalBankAccountRecord', accountId: $owner->getKey());
+                            Notification::make()
+                                ->title('Imported to Master')
+                                ->body("Transaction of \${$record->amount} posted to Master Bank.")
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (ExternalBankImport $record) => ! $record->imported_to_master && ! $record->is_duplicate),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->selectable(true)
             ->toolbarActions([

@@ -230,8 +230,16 @@ class MemberResource extends Resource
                     ->query(fn ($query) => $query->whereIn('id', Member::whereNotNull('parent_id')->pluck('parent_id'))),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make(),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([

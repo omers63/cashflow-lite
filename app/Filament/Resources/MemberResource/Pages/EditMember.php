@@ -41,7 +41,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Set Allowances')
                 ->icon('heroicon-o-adjustments-horizontal')
-                ->color('info')
+                ->link()
                 ->visible(fn () => $member->isParentMember())
                 ->form(function () use ($member, $dependants) {
                     $allocationOptions = array_combine(
@@ -81,7 +81,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Allocate to Dependant')
                 ->icon('heroicon-o-banknotes')
-                ->color('primary')
+                ->link()
                 ->visible(fn () => $member->isParentMember())
                 ->form([
                     Forms\Components\Select::make('dependent_id')
@@ -141,9 +141,9 @@ class EditMember extends EditRecord
                 }),
             Actions\Action::make('contribute')
                 ->label('')
-                ->tooltip('Contribute')
+                ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : 'Contribute')
                 ->icon('heroicon-o-arrow-up-circle')
-                ->color('success')
+                ->link()
                 ->visible(fn () => ! $member->hasActiveLoan())
                 ->disabled(fn () => (float) $member->bank_account_balance <= 0)
                 ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : null)
@@ -184,7 +184,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Make Repayment')
                 ->icon('heroicon-o-arrow-up-circle')
-                ->color('success')
+                ->link()
                 ->visible(fn () => $member->hasActiveLoan())
                 ->form(function () use ($member) {
                     $activeLoans = $member->loans()->where('status', 'active')->with('member')->get();
@@ -243,7 +243,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Request Loan')
                 ->icon('heroicon-o-banknotes')
-                ->color('danger')
+                ->link()
                 ->form(function () use ($member) {
                     $maxLoan = $member->maxLoanAmount();
                     $errors = $member->loanEligibilityErrors();
@@ -339,7 +339,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Import Funds')
                 ->icon('heroicon-o-arrow-down-tray')
-                ->color('warning')
+                ->link()
                 ->form([
                     Forms\Components\FileUpload::make('import_file')
                         ->label('File (CSV / XLS / XLSX)')
@@ -399,7 +399,7 @@ class EditMember extends EditRecord
                 ->label('')
                 ->tooltip('Recalculate Balances')
                 ->icon('heroicon-o-calculator')
-                ->color('success')
+                ->link()
                 ->requiresConfirmation()
                 ->modalHeading('Recalculate balances from transactions')
                 ->modalDescription('This will recalculate both the Bank Account Balance and Fund Account Balance from the member\'s transactions.')

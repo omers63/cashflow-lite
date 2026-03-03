@@ -99,8 +99,16 @@ class ReconciliationResource extends Resource
                     ->query(fn($query) => $query->where('all_passed', false)),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\DeleteAction::make(),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->tooltip('Delete'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([

@@ -232,13 +232,19 @@ class LoanResource extends Resource
                         ->whereBetween('next_payment_date', [now(), now()->addDays(7)])),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make()
-                    ->visible(fn ($record) => $record->status === 'pending'),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit')
+                        ->visible(fn ($record) => $record->status === 'pending'),
 
-                Actions\Action::make('approve')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
+                    Actions\Action::make('approve')
+                        ->label('Approve')
+                        ->tooltip('Approve')
+                        ->icon('heroicon-o-check-circle')
                     ->requiresConfirmation()
                     ->modalHeading(fn (Loan $record) => 'Approve loan ' . $record->loan_id . '?')
                     ->modalDescription(function (Loan $record) {
@@ -250,27 +256,31 @@ class LoanResource extends Resource
                         }
                         return $desc;
                     })
-                    ->action(function (Loan $record) {
-                        try {
-                            $record->approve(auth()->id());
-                            Notification::make()
-                                ->title('Loan approved and disbursed')
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->title($e->getMessage())->danger()->send();
-                        }
-                    })
-                    ->visible(fn ($record) => $record->status === 'pending'),
+                        ->action(function (Loan $record) {
+                            try {
+                                $record->approve(auth()->id());
+                                Notification::make()
+                                    ->title('Loan approved and disbursed')
+                                    ->success()
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()->title($e->getMessage())->danger()->send();
+                            }
+                        })
+                        ->visible(fn ($record) => $record->status === 'pending'),
 
-                Actions\Action::make('view_schedule')
-                    ->icon('heroicon-o-calendar')
-                    ->color('info')
-                    ->modalHeading('Amortization Schedule')
-                    ->modalContent(fn ($record) => view('filament.modals.amortization-schedule', [
-                        'schedule' => $record->generateAmortizationSchedule(),
-                    ]))
-                    ->modalSubmitAction(false),
+                    Actions\Action::make('view_schedule')
+                        ->label('View Schedule')
+                        ->tooltip('View Amortization Schedule')
+                        ->icon('heroicon-o-calendar')
+                        ->modalHeading('Amortization Schedule')
+                        ->modalContent(fn ($record) => view('filament.modals.amortization-schedule', [
+                            'schedule' => $record->generateAmortizationSchedule(),
+                        ]))
+                        ->modalSubmitAction(false),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([

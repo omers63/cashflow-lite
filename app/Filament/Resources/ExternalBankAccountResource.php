@@ -15,7 +15,7 @@ class ExternalBankAccountResource extends Resource
 {
     protected static ?string $model = ExternalBankAccount::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-library';
-    protected static string|\UnitEnum|null $navigationGroup = 'Settings';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 1;
     protected static ?string $navigationLabel = 'External Banks';
 
@@ -95,9 +95,19 @@ class ExternalBankAccountResource extends Resource
                     ]),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make(),
-                Actions\DeleteAction::make(),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit'),
+                    Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->tooltip('Delete'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
@@ -121,5 +131,14 @@ class ExternalBankAccountResource extends Resource
             'view' => Pages\ViewExternalBankAccount::route('/{record}'),
             'edit' => Pages\EditExternalBankAccount::route('/{record}/edit'),
         ];
+    }
+
+    /**
+     * Hide this resource from the main navigation; it is now accessed via
+     * the Master Accounts page (as a related table).
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
     }
 }

@@ -13,8 +13,12 @@ class EditException extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            Actions\ViewAction::make()
+                ->label('')
+                ->tooltip('View'),
+            Actions\DeleteAction::make()
+                ->label('')
+                ->tooltip('Delete'),
         ];
     }
 }

@@ -16,7 +16,8 @@ class ListExternalBankAccounts extends ListRecords
             Actions\CreateAction::make()
                 ->label('')
                 ->icon('heroicon-o-plus-circle')
-                ->tooltip('Create'),
+                ->tooltip('Create')
+                ->link(),
         ];
     }
 }

@@ -116,10 +116,11 @@ class TransactionsRelationManager extends RelationManager
                     }),
             ])
             ->recordActions([
-                Actions\Action::make('assign_user')
-                    ->label('Assign Member')
-                    ->icon('heroicon-o-user-plus')
-                    ->color('gray')
+                Actions\ActionGroup::make([
+                    Actions\Action::make('assign_user')
+                        ->label('Assign Member')
+                        ->tooltip('Assign Member')
+                        ->icon('heroicon-o-user-plus')
                     ->schema([
                         Forms\Components\Select::make('member_id')
                             ->label('Member')
@@ -135,28 +136,28 @@ class TransactionsRelationManager extends RelationManager
                             ->searchable()
                             ->required(),
                     ])
-                    ->action(function (Transaction $record, array $data): void {
-                        DB::transaction(function () use ($record, $data): void {
-                            $member = Member::find($data['member_id']);
-                            if ($member) {
-                                $member->creditBankAccount((float) $record->amount);
-                                $record->update(['user_id' => $member->user_id]);
-                            }
-                        });
-
-                        \Filament\Notifications\Notification::make()
-                            ->title('Assigned to member')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
-                        && $record->type === 'external_import'
-                        && ! $record->user_id),
-
-                Actions\Action::make('reassign_user')
-                    ->label('Reassign to Member')
-                    ->icon('heroicon-o-arrow-path')
-                    ->color('gray')
+                        ->action(function (Transaction $record, array $data): void {
+                            DB::transaction(function () use ($record, $data): void {
+                                $member = Member::find($data['member_id']);
+                                if ($member) {
+                                    $member->creditBankAccount((float) $record->amount);
+                                    $record->update(['user_id' => $member->user_id]);
+                                }
+                            });
+    
+                            \Filament\Notifications\Notification::make()
+                                ->title('Assigned to member')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
+                            && $record->type === 'external_import'
+                            && ! $record->user_id),
+    
+                    Actions\Action::make('reassign_user')
+                        ->label('Reassign to Member')
+                        ->tooltip('Reassign to Member')
+                        ->icon('heroicon-o-arrow-path')
                     ->schema([
                         Forms\Components\Select::make('member_id')
                             ->label('Member')
@@ -173,27 +174,30 @@ class TransactionsRelationManager extends RelationManager
                             ->required()
                             ->default(fn (Transaction $record) => $record->user?->member?->id),
                     ])
-                    ->action(function (Transaction $record, array $data): void {
-                        DB::transaction(function () use ($record, $data): void {
-                            $oldMember = $record->user?->member;
-                            if ($oldMember) {
-                                $oldMember->debitBankAccount((float) $record->amount);
-                            }
-                            $newMember = Member::find($data['member_id']);
-                            if ($newMember) {
-                                $newMember->creditBankAccount((float) $record->amount);
-                                $record->update(['user_id' => $newMember->user_id]);
-                            }
-                        });
-
-                        \Filament\Notifications\Notification::make()
-                            ->title('Reassigned to member')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
-                        && $record->type === 'external_import'
-                        && (bool) $record->user_id),
+                        ->action(function (Transaction $record, array $data): void {
+                            DB::transaction(function () use ($record, $data): void {
+                                $oldMember = $record->user?->member;
+                                if ($oldMember) {
+                                    $oldMember->debitBankAccount((float) $record->amount);
+                                }
+                                $newMember = Member::find($data['member_id']);
+                                if ($newMember) {
+                                    $newMember->creditBankAccount((float) $record->amount);
+                                    $record->update(['user_id' => $newMember->user_id]);
+                                }
+                            });
+    
+                            \Filament\Notifications\Notification::make()
+                                ->title('Reassigned to member')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
+                            && $record->type === 'external_import'
+                            && (bool) $record->user_id),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->selectable(true)
             ->toolbarActions([

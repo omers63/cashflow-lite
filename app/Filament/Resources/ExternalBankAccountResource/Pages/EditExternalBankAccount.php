@@ -35,14 +35,15 @@ class EditExternalBankAccount extends EditRecord
                 ->label('')
                 ->tooltip('Import Bank Transactions')
                 ->icon('heroicon-o-arrow-down-tray')
+                ->link()
                 ->url(ImportExternalBank::getUrl() . '?bank=' . (int) $this->record->getKey())
-                ->color('info'),
+                ,
 
             Actions\Action::make('recalculate_balance')
                 ->label('')
                 ->tooltip('Recalculate Balance')
                 ->icon('heroicon-o-calculator')
-                ->color('success')
+                ->link()
                 ->requiresConfirmation()
                 ->modalHeading('Recalculate current balance from transactions')
                 ->modalDescription('This will set Current Balance to the sum of all transaction amounts for this account. Use when the balance is out of sync or should be zero when there are no transactions.')

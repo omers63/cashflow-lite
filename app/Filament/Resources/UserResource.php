@@ -131,29 +131,39 @@ class UserResource extends Resource
                     ]),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make(),
-
-                Actions\Action::make('suspend')
-                    ->icon('heroicon-o-no-symbol')
-                    ->color('danger')
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit'),
+                    
+                    Actions\Action::make('suspend')
+                        ->label('Suspend')
+                        ->tooltip('Suspend')
+                        ->icon('heroicon-o-no-symbol')
                     ->requiresConfirmation()
                     ->schema([
                         Forms\Components\Textarea::make('reason')
                             ->required()
                             ->label('Suspension Reason'),
                     ])
-                    ->action(function (User $record, array $data) {
-                        $record->suspend($data['reason']);
-                    })
-                    ->visible(fn(User $record) => $record->status === 'active'),
-
-                Actions\Action::make('activate')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->action(fn(User $record) => $record->activate())
-                    ->visible(fn(User $record) => $record->status !== 'active'),
+                        ->action(function (User $record, array $data) {
+                            $record->suspend($data['reason']);
+                        })
+                        ->visible(fn(User $record) => $record->status === 'active'),
+                    
+                    Actions\Action::make('activate')
+                        ->label('Activate')
+                        ->tooltip('Activate')
+                        ->icon('heroicon-o-check-circle')
+                        ->requiresConfirmation()
+                        ->action(fn(User $record) => $record->activate())
+                        ->visible(fn(User $record) => $record->status !== 'active'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([

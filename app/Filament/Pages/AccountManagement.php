@@ -41,23 +41,31 @@ class AccountManagement extends Page implements HasTable
     {
         return [
             Actions\Action::make('master_accounts')
-                ->label('Manage Master Accounts')
+                ->label('')
+                ->tooltip('Manage Master Accounts')
                 ->icon('heroicon-o-banknotes')
+                ->link()
                 ->url(MasterAccountResource::getUrl('index')),
 
             Actions\Action::make('external_banks')
-                ->label('External Bank Accounts')
+                ->label('')
+                ->tooltip('External Bank Accounts')
                 ->icon('heroicon-o-building-library')
+                ->link()
                 ->url(ExternalBankAccountResource::getUrl('index')),
 
             Actions\Action::make('members')
-                ->label('Members')
+                ->label('')
+                ->tooltip('Members')
                 ->icon('heroicon-o-user-group')
+                ->link()
                 ->url(MemberResource::getUrl('index')),
 
             Actions\Action::make('users')
-                ->label('Users')
+                ->label('')
+                ->tooltip('Users')
                 ->icon('heroicon-o-users')
+                ->link()
                 ->url(UserResource::getUrl('index')),
         ];
     }

@@ -32,9 +32,9 @@ class DailyReconciliation extends Page
 
         return [
             Action::make('delete_latest')
-                ->label('Delete Latest')
+                ->label('')
+                ->tooltip('Delete Latest Reconciliation')
                 ->icon('heroicon-o-trash')
-                ->color('danger')
                 ->requiresConfirmation()
                 ->modalHeading('Delete Latest Reconciliation')
                 ->modalDescription('Are you sure you want to delete the latest reconciliation record? This cannot be undone.')
@@ -52,9 +52,9 @@ class DailyReconciliation extends Page
                 ->visible(fn () => $latest instanceof Reconciliation),
 
             Action::make('run_reconciliation')
-                ->label('Run Reconciliation')
+                ->label('')
+                ->tooltip('Run Reconciliation')
                 ->icon('heroicon-o-play')
-                ->color('primary')
                 ->requiresConfirmation()
                 ->action(function () {
                     try {

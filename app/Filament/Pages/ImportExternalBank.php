@@ -364,31 +364,39 @@ class ImportExternalBank extends Page implements HasTable
                     }),
             ])
             ->recordActions([
-                Actions\Action::make('import_now')
-                    ->label('Import')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->modalHeading('Import Transaction')
-                    ->modalDescription(fn($record) => "Import transaction of \${$record->amount} to Master Bank Account?")
-                    ->action(fn(ExternalBankImport $record) => $this->importSingleRecord($record))
-                    ->visible(fn(ExternalBankImport $record) => !$record->imported_to_master && !$record->is_duplicate),
+                Actions\ActionGroup::make([
+                    Actions\Action::make('import_now')
+                        ->label('Import to Master')
+                        ->tooltip('Import to Master')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Import Transaction')
+                        ->modalDescription(fn($record) => "Import transaction of \${$record->amount} to Master Bank Account?")
+                        ->action(fn(ExternalBankImport $record) => $this->importSingleRecord($record))
+                        ->visible(fn(ExternalBankImport $record) => !$record->imported_to_master && !$record->is_duplicate),
 
-                Actions\DeleteAction::make(),
+                    Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->tooltip('Delete'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('import_selected')
                         ->label('Import Selected')
+                        ->tooltip('Import Selected')
                         ->icon('heroicon-o-arrow-down-tray')
-                        ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('Bulk Import')
                         ->modalDescription('Import all selected transactions to Master Bank Account?')
                         ->action(fn($records) => $this->bulkImport($records))
                         ->deselectRecordsAfterCompletion(),
 
-                    Actions\DeleteBulkAction::make(),
+                    Actions\DeleteBulkAction::make()
+                        ->label('Delete Selected')
+                        ->tooltip('Delete Selected'),
                 ]),
             ])
             ->defaultSort('import_date', 'desc')
@@ -406,14 +414,12 @@ class ImportExternalBank extends Page implements HasTable
             Action::make('preview')
                 ->label('Preview')
                 ->icon('heroicon-o-eye')
-                ->color('gray')
                 ->action(fn() => $this->previewImport())
                 ->keyBindings(['ctrl+p', 'cmd+p']),
 
             Action::make('import')
                 ->label('Import Transaction')
                 ->icon('heroicon-o-check-circle')
-                ->color('success')
                 ->requiresConfirmation()
                 ->modalHeading('Confirm Import')
                 ->modalDescription(fn() => $this->duplicateCount > 0

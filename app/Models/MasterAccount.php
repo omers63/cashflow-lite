@@ -70,4 +70,13 @@ class MasterAccount extends Model
     {
         return $this->hasMany(Transaction::class, 'id', 'id');
     }
+
+    /**
+     * Dummy relationship used by the external bank accounts relation manager.
+     * The actual query is customized in the relation manager.
+     */
+    public function externalBankAccounts(): HasMany
+    {
+        return $this->hasMany(ExternalBankAccount::class, 'id', 'id');
+    }
 }

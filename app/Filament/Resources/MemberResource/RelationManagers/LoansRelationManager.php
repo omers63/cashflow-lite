@@ -71,8 +71,14 @@ class LoansRelationManager extends RelationManager
             ])
             ->defaultSort('created_at', 'desc')
             ->recordActions([
-                Actions\ViewAction::make()
-                    ->url(fn (Loan $record) => LoanResource::getUrl('view', ['record' => $record])),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View')
+                        ->url(fn (Loan $record) => LoanResource::getUrl('view', ['record' => $record])),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->emptyStateHeading('No loans yet')
             ->emptyStateDescription('This member has not taken any loans.')

@@ -206,35 +206,41 @@ class TransactionsRelationManager extends RelationManager
                     }),
             ])
             ->recordActions([
-                Actions\ViewAction::make()
-                    ->url(fn($record) => TransactionResource::getUrl('view', ['record' => $record])),
-                Actions\Action::make('unassign')
-                    ->label('Unassign Member')
-                    ->icon('heroicon-o-user-minus')
-                    ->color('gray')
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View')
+                        ->url(fn($record) => TransactionResource::getUrl('view', ['record' => $record])),
+                    Actions\Action::make('unassign')
+                        ->label('Unassign Member')
+                        ->tooltip('Unassign Member')
+                        ->icon('heroicon-o-user-minus')
                     ->requiresConfirmation()
                     ->modalHeading('Unassign transaction from member')
                     ->modalDescription('This transaction will be unassigned from this member. The record is not deleted. For external imports, the member\'s bank balance will be reduced by the transaction amount.')
-                    ->action(function (Transaction $record): void {
-                        $owner = $this->getOwnerRecord();
-                        $ownerUserId = (int) $owner->user_id;
-                        if ((int) $record->user_id !== $ownerUserId) {
-                            return;
-                        }
-                        DB::transaction(function () use ($record): void {
-                            if ($record->type === 'external_import' && $record->user) {
-                                $record->user->debitBankAccount((float) $record->amount);
+                        ->action(function (Transaction $record): void {
+                            $owner = $this->getOwnerRecord();
+                            $ownerUserId = (int) $owner->user_id;
+                            if ((int) $record->user_id !== $ownerUserId) {
+                                return;
                             }
-                            $record->update(['user_id' => null]);
-                        });
-                        $owner->refresh();
-                        $this->dispatch('refreshMemberRecord', memberId: $owner->getKey());
-                        Notification::make()
-                            ->title('Transaction unassigned')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn(Transaction $record) => (int) $record->user_id === (int) $this->getOwnerRecord()?->user_id),
+                            DB::transaction(function () use ($record): void {
+                                if ($record->type === 'external_import' && $record->user) {
+                                    $record->user->debitBankAccount((float) $record->amount);
+                                }
+                                $record->update(['user_id' => null]);
+                            });
+                            $owner->refresh();
+                            $this->dispatch('refreshMemberRecord', memberId: $owner->getKey());
+                            Notification::make()
+                                ->title('Transaction unassigned')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn(Transaction $record) => (int) $record->user_id === (int) $this->getOwnerRecord()?->user_id),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([

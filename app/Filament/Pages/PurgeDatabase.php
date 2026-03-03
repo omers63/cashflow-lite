@@ -58,9 +58,9 @@ class PurgeDatabase extends Page
     {
         return [
             Action::make('purge_all')
-                ->label('Purge All')
+                ->label('')
+                ->tooltip('Purge All')
                 ->icon('heroicon-o-trash')
-                ->color('danger')
                 ->requiresConfirmation()
                 ->modalHeading('Permanently delete ALL soft-deleted records?')
                 ->modalDescription('This will permanently remove every soft-deleted record across all tables. This action cannot be undone.')

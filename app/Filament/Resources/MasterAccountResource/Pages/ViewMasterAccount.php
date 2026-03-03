@@ -15,11 +15,22 @@ class ViewMasterAccount extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\EditAction::make(),
+            Actions\EditAction::make()
+                ->label('')
+                ->tooltip('Edit')
+                ->icon('heroicon-o-pencil-square')
+                ->link(),
+            Actions\Action::make('create_external_bank')
+                ->label('')
+                ->tooltip('Create External Bank')
+                ->icon('heroicon-o-plus-circle')
+                ->link()
+                ->url(\App\Filament\Resources\ExternalBankAccountResource::getUrl('create')),
             Actions\Action::make('recalculate_balance')
-                ->label('Recalculate Balance')
+                ->label('')
+                ->tooltip('Recalculate Balance')
                 ->icon('heroicon-o-calculator')
-                ->color('success')
+                ->link()
                 ->requiresConfirmation()
                 ->modalHeading('Recalculate balance from transactions')
                 ->modalDescription('This will set the current balance to the sum of transaction effects (credits minus debits). Use when the balance is out of sync or should be zero when there are no transactions.')

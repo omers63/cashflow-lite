@@ -17,7 +17,7 @@ class MasterAccountResource extends Resource
 {
     protected static ?string $model = MasterAccount::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-banknotes';
-    protected static string|\UnitEnum|null $navigationGroup = 'Settings';
+    protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?string $navigationLabel = 'Master Accounts';
     protected static ?int $navigationSort = 0;
     protected static ?string $modelLabel = 'Master Account';
@@ -155,6 +155,7 @@ class MasterAccountResource extends Resource
     {
         return [
             \App\Filament\Resources\MasterAccountResource\RelationManagers\TransactionsRelationManager::class,
+            \App\Filament\Resources\MasterAccountResource\RelationManagers\ExternalBankAccountsRelationManager::class,
         ];
     }
 
