@@ -32,13 +32,15 @@ class EditExternalBankAccount extends EditRecord
     {
         return [
             Actions\Action::make('import_bank_transactions')
-                ->label('Import Bank Transactions')
+                ->label('')
+                ->tooltip('Import Bank Transactions')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->url(ImportExternalBank::getUrl() . '?bank=' . (int) $this->record->getKey())
                 ->color('info'),
 
             Actions\Action::make('recalculate_balance')
-                ->label('Recalculate Balance')
+                ->label('')
+                ->tooltip('Recalculate Balance')
                 ->icon('heroicon-o-calculator')
                 ->color('success')
                 ->requiresConfirmation()
@@ -55,8 +57,12 @@ class EditExternalBankAccount extends EditRecord
                         ->success()
                         ->send();
                 }),
-            Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            Actions\ViewAction::make()
+                ->label('')
+                ->tooltip('View'),
+            Actions\DeleteAction::make()
+                ->label('')
+                ->tooltip('Delete'),
         ];
     }
 }

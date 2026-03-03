@@ -301,6 +301,7 @@ class MemberResource extends Resource
     {
         return [
             \App\Filament\Resources\MemberResource\RelationManagers\TransactionsRelationManager::class,
+            \App\Filament\Resources\MemberResource\RelationManagers\LoansRelationManager::class,
         ];
     }
 

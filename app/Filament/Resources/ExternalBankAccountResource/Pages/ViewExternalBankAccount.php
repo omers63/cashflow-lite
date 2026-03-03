@@ -32,13 +32,15 @@ class ViewExternalBankAccount extends ViewRecord
     {
         return [
             Actions\Action::make('import_bank_transactions')
-                ->label('Import Bank Transactions')
+                ->label('')
+                ->tooltip('Import Bank Transactions')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->url(ImportExternalBank::getUrl() . '?bank=' . (int) $this->record->getKey())
                 ->color('info'),
 
             Actions\Action::make('recalculate_balance')
-                ->label('Recalculate Balance')
+                ->label('')
+                ->tooltip('Recalculate Balance')
                 ->icon('heroicon-o-calculator')
                 ->color('success')
                 ->requiresConfirmation()
@@ -54,7 +56,9 @@ class ViewExternalBankAccount extends ViewRecord
                         ->success()
                         ->send();
                 }),
-            Actions\EditAction::make(),
+            Actions\EditAction::make()
+                ->label('')
+                ->tooltip('Edit'),
         ];
     }
 }

@@ -38,7 +38,8 @@ class EditMember extends EditRecord
 
         return [
             Actions\Action::make('set_allowances')
-                ->label('Set Allowances')
+                ->label('')
+                ->tooltip('Set Allowances')
                 ->icon('heroicon-o-adjustments-horizontal')
                 ->color('info')
                 ->visible(fn () => $member->isParentMember())
@@ -77,7 +78,8 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('allocate_to_dependant')
-                ->label('Allocate to Dependant')
+                ->label('')
+                ->tooltip('Allocate to Dependant')
                 ->icon('heroicon-o-banknotes')
                 ->color('primary')
                 ->visible(fn () => $member->isParentMember())
@@ -138,7 +140,8 @@ class EditMember extends EditRecord
                     }
                 }),
             Actions\Action::make('contribute')
-                ->label('Contribute')
+                ->label('')
+                ->tooltip('Contribute')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->color('success')
                 ->visible(fn () => ! $member->hasActiveLoan())
@@ -178,7 +181,8 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('make_repayment')
-                ->label('Make Repayment')
+                ->label('')
+                ->tooltip('Make Repayment')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->color('success')
                 ->visible(fn () => $member->hasActiveLoan())
@@ -236,7 +240,8 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('request_loan')
-                ->label('Request Loan')
+                ->label('')
+                ->tooltip('Request Loan')
                 ->icon('heroicon-o-banknotes')
                 ->color('danger')
                 ->form(function () use ($member) {
@@ -331,7 +336,8 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('import_funds')
-                ->label('Import Funds')
+                ->label('')
+                ->tooltip('Import Funds')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('warning')
                 ->form([
@@ -390,7 +396,8 @@ class EditMember extends EditRecord
                 }),
 
             Actions\Action::make('recalculate_balance')
-                ->label('Recalculate Balances')
+                ->label('')
+                ->tooltip('Recalculate Balances')
                 ->icon('heroicon-o-calculator')
                 ->color('success')
                 ->requiresConfirmation()

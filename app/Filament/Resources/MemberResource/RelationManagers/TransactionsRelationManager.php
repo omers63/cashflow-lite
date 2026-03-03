@@ -8,8 +8,10 @@ use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -67,29 +69,56 @@ class TransactionsRelationManager extends RelationManager
                     ->label('Amount')
                     ->getStateUsing(function (Transaction $record) {
                         $amount = (float) $record->amount;
-                        $debitTypes = ['contribution', 'allocation_to_dependant'];
+                        // On the member pages, show contributions as positive amounts.
+                        // Only allocation_to_dependant is rendered as a negative (debit).
+                        $debitTypes = ['allocation_to_dependant'];
                         return in_array($record->type, $debitTypes, true) ? -$amount : $amount;
                     })
-                    ->formatStateUsing(fn ($state) => $state >= 0
+                    ->formatStateUsing(fn($state) => $state >= 0
                         ? '$' . number_format($state, 2)
                         : '-$' . number_format(abs($state), 2))
-                    ->color(fn ($state) => $state < 0 ? 'danger' : null)
-                    ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
+                    ->color(fn($state) => $state < 0 ? 'danger' : null)
+                    ->sortable(query: fn($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
-                            ->label('Net (matches bank balance)')
+                            ->label('Net')
                             // modifyQueryUsing must be set so hasQueryModification() returns true,
                             // otherwise Filament pre-computes SUM(amount) in SQL via selectedState
                             // and the using() callback is never reached.
-                            ->query(fn ($q) => $q)
+                            ->query(fn($q) => $q)
                             ->using(function (string $attribute, $query) {
                                 /** @var \Filament\Resources\RelationManagers\RelationManager $livewire */
                                 $livewire = $this->getTable()->getLivewire();
-                                $owner = $livewire->getOwnerRecord();
-                                $owner->refresh();
-                                return (float) $owner->bank_account_balance;
+
+                                $sumFilteredRows = function () use ($query) {
+                                    $records = $query->get();
+                                    return $records->sum(function ($row) {
+                                        $amount = (float) (is_object($row) ? ($row->amount ?? 0) : ($row['amount'] ?? 0));
+                                        $type = is_object($row) ? ($row->type ?? '') : ($row['type'] ?? '');
+                                        $debitTypes = ['allocation_to_dependant'];
+                                        return in_array($type, $debitTypes, true) ? -$amount : $amount;
+                                    });
+                                };
+
+                                // If a "To Account (exact)" filter is applied, net = sum of filtered rows.
+                                $filtersState = $livewire->getTableFiltersForm()->getState();
+                                $toAccountFilterValues = $filtersState['to_account_exact']['values'] ?? [];
+                                if (!empty($toAccountFilterValues)) {
+                                    return (float) $sumFilteredRows();
+                                }
+
+                                // "All" tab: net = member's bank account balance.
+                                $activeTab = $livewire->activeTab ?? 'all';
+                                if ($activeTab === 'all') {
+                                    $owner = $livewire->getOwnerRecord();
+                                    $owner->refresh();
+                                    return (float) $owner->bank_account_balance;
+                                }
+
+                                // Any other tab: net = sum of transactions of that type (with sign logic).
+                                return (float) $sumFilteredRows();
                             })
-                            ->formatStateUsing(fn ($state) => '$' . number_format((float) $state, 2)),
+                            ->formatStateUsing(fn($state) => '$' . number_format((float) $state, 2)),
                     ]),
 
                 Tables\Columns\TextColumn::make('status')
@@ -144,18 +173,22 @@ class TransactionsRelationManager extends RelationManager
                             ->when($values, fn($q, $v) => $q->whereIn('from_account', $v));
                     }),
 
-                Tables\Filters\Filter::make('from_account')
-                    ->label('From Account')
-                    ->schema([
-                        Forms\Components\TextInput::make('value')
-                            ->label('Contains')
-                            ->placeholder('e.g. External Bank, Master Bank'),
-                    ])
+                Tables\Filters\SelectFilter::make('to_account_exact')
+                    ->label('To Account (exact)')
+                    ->options(
+                        fn() => Transaction::query()
+                            ->whereNotNull('to_account')
+                            ->distinct()
+                            ->orderBy('to_account')
+                            ->pluck('to_account', 'to_account')
+                            ->toArray()
+                    )
+                    ->multiple()
                     ->query(function ($query, array $data) {
-                        $value = $data['value'] ?? null;
+                        $values = $data['values'] ?? [];
 
                         return $query
-                            ->when($value, fn($q, $v) => $q->where('from_account', 'like', '%' . $v . '%'));
+                            ->when($values, fn($q, $v) => $q->whereIn('to_account', $v));
                     }),
 
                 Tables\Filters\Filter::make('transaction_date')
@@ -240,5 +273,57 @@ class TransactionsRelationManager extends RelationManager
                 ]),
             ])
             ->paginated([10, 25, 50]);
+    }
+
+    /**
+     * Split the member transactions table into tabs by transaction type.
+     */
+    public function getTabs(): array
+    {
+        return [
+            'all' => Tab::make('')
+                ->icon('heroicon-o-bars-3')
+                ->extraAttributes(['title' => 'All transactions']),
+
+            'contribution' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'contribution'))
+                ->icon('heroicon-o-arrow-up-circle')
+                ->extraAttributes(['title' => 'Contributions']),
+
+            'loan_repayment' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'loan_repayment'))
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->extraAttributes(['title' => 'Loan repayments']),
+
+            'loan_disbursement' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'loan_disbursement'))
+                ->icon('heroicon-o-banknotes')
+                ->extraAttributes(['title' => 'Loan disbursements']),
+
+            'allocation_to_dependant' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'allocation_to_dependant'))
+                ->icon('heroicon-o-user-group')
+                ->extraAttributes(['title' => 'Allocations to dependants']),
+
+            'allocation_from_parent' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'allocation_from_parent'))
+                ->icon('heroicon-o-user-group')
+                ->extraAttributes(['title' => 'Allocations from parent']),
+
+            'external_import' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'external_import'))
+                ->icon('heroicon-o-arrow-down-tray')
+                ->extraAttributes(['title' => 'External imports']),
+
+            'master_to_user_bank' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'master_to_user_bank'))
+                ->icon('heroicon-o-building-library')
+                ->extraAttributes(['title' => 'Master to member bank']),
+
+            'adjustment' => Tab::make('')
+                ->modifyQueryUsing(fn(Builder $query) => $query->where('type', 'adjustment'))
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->extraAttributes(['title' => 'Adjustments']),
+        ];
     }
 }
