@@ -118,6 +118,9 @@ class ViewMember extends ViewRecord
                     Forms\Components\Textarea::make('notes')
                         ->label('Notes')
                         ->rows(2),
+                    Forms\Components\DatePicker::make('allocation_date')
+                        ->label('Allocation date (optional)')
+                        ->native(false),
                 ])
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
@@ -136,7 +139,7 @@ class ViewMember extends ViewRecord
                         return;
                     }
                     try {
-                        $member->allocateToDependant($dependent, (float) $amount, $data['notes'] ?? null);
+                        $member->allocateToDependant($dependent, (float) $amount, $data['notes'] ?? null, $data['allocation_date'] ?? null);
                         $this->record = $member->fresh();
                         $this->refreshInfolist();
                         $this->dispatch('refreshTransactions');
@@ -156,7 +159,6 @@ class ViewMember extends ViewRecord
                 ->link()
                 ->visible(fn() => !$member->hasActiveLoan())
                 ->disabled(fn() => (float) $member->bank_account_balance <= 0)
-                ->tooltip(fn() => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : null)
                 ->form(function () use ($member) {
                     $default = (int) ($member->allowed_allocation ?? 500);
                     $bank = (float) $member->bank_account_balance;
@@ -170,13 +172,16 @@ class ViewMember extends ViewRecord
                             ->step(0.01)
                             ->required()
                             ->helperText('Default is your allowance ($' . number_format($default, 2) . '). Bank balance available: $' . number_format($bank, 2) . '.'),
+                        Forms\Components\DatePicker::make('contribution_date')
+                            ->label('Contribution date (optional)')
+                            ->native(false),
                     ];
                 })
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $amount = (float) $data['amount'];
                     try {
-                        $member->contribute($amount);
+                        $member->contribute($amount, null, $data['contribution_date'] ?? null);
                         $this->record = $member->fresh();
                         $this->refreshInfolist();
                         $this->dispatch('refreshTransactions');

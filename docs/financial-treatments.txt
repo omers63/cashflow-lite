@@ -1,0 +1,24 @@
+Enforce the following financial rules/treatments:
+For loan disbursements:
+- The amount shows as debit in the external bank account.
+- The transaction gets imported to the master bank account as a debit.
+- The transaction gets assigned to a user loan account.
+- The user's fund account is debited
+- The master fund account is also debited.
+For loan repayment:
+- The amount shows as credit in the external bank account.
+- The transaction gets imported to the master bank account as a credit.
+- The transaction gets assigned to a user loan account.
+- The user's bank account is credited.
+- The user's bank account is then debited.
+- The user's loan account is then credited.
+- The user's fund account is also credited.
+- The master fund account is also credited.
+For Contribution:
+- The amount shows as credit in the external bank account.
+- The transaction gets imported to the master bank account as a credit.
+- The transaction gets assigned to a user.
+- The user's bank account is credited.
+- The user's bank account is then debited.
+- The user's fund account is then credited.
+- The master fund account is also credited.

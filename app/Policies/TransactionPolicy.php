@@ -27,7 +27,7 @@ class TransactionPolicy
 
     public function update(User $user, Transaction $transaction): bool
     {
-        return $transaction->status === 'pending';
+        return true;
     }
 
     public function delete(User $user, Transaction $transaction): bool

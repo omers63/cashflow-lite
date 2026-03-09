@@ -221,6 +221,11 @@ class TransactionsRelationManager extends RelationManager
                         ->label('View')
                         ->tooltip('View')
                         ->url(fn($record) => TransactionResource::getUrl('view', ['record' => $record])),
+                    Actions\Action::make('edit')
+                        ->label('Edit')
+                        ->tooltip('Edit')
+                        ->icon('heroicon-o-pencil-square')
+                        ->url(fn(Transaction $record) => TransactionResource::getUrl('edit', ['record' => $record])),
                     Actions\Action::make('unassign')
                         ->label('Unassign Member')
                         ->tooltip('Unassign Member')

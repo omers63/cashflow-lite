@@ -20,6 +20,7 @@ class MasterAccountResource extends Resource
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?string $navigationLabel = 'Master Accounts';
     protected static ?int $navigationSort = 0;
+    protected static bool $shouldRegisterNavigation = false;
     protected static ?string $modelLabel = 'Master Account';
     protected static ?string $pluralModelLabel = 'Master Accounts';
 

@@ -178,7 +178,6 @@ class ImportExternalBank extends Page implements HasTable
                                                     ->schema([
                                                         Forms\Components\DateTimePicker::make('transaction_date')
                                                             ->label('Date')
-                                                            ->required()
                                                             ->default(now())
                                                             ->native(false)
                                                             ->prefixIcon('heroicon-o-calendar'),
@@ -187,7 +186,6 @@ class ImportExternalBank extends Page implements HasTable
                                                             ->label('Amount')
                                                             ->numeric()
                                                             ->prefix('$')
-                                                            ->required()
                                                             ->step(0.01)
                                                             ->minValue(0.01)
                                                             ->prefixIcon('heroicon-o-currency-dollar'),

@@ -19,6 +19,7 @@ class ReconciliationResource extends Resource
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 5;
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function form(Schema $schema): Schema
     {
@@ -165,18 +166,21 @@ class ReconciliationResource extends Resource
                                 if (!is_array($results)) {
                                     return [];
                                 }
-                                // Convert any array/nested values to strings
-                                return collect($results)->mapWithKeys(function ($value, $key) {
-                                    $formattedValue = $value;
-                                    if (is_array($value)) {
-                                        $formattedValue = json_encode($value);
-                                    } elseif (is_bool($value)) {
-                                        $formattedValue = $value ? 'Passed' : 'Failed';
-                                    } elseif (!is_string($value) && !is_null($value)) {
-                                        $formattedValue = (string) $value;
+                                // Build readable key => value from keyed checks (E1, E2, M1, ...)
+                                $out = [];
+                                foreach ($results as $check) {
+                                    $key = $check['key'] ?? ('Check ' . (count($out) + 1));
+                                    $status = $check['status'] ?? '?';
+                                    $variance = $check['variance'] ?? null;
+                                    if ($status === 'PASS') {
+                                        $out[$key] = 'OK';
+                                    } else {
+                                        $out[$key] = $variance !== null && (float)$variance != 0
+                                            ? 'Variance ' . number_format((float)$variance, 2)
+                                            : 'Failed';
                                     }
-                                    return [$key => $formattedValue];
-                                })->toArray();
+                                }
+                                return $out;
                             }),
                     ]),
 

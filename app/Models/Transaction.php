@@ -189,8 +189,12 @@ class Transaction extends Model
 
     private function reverseLoanDisbursement(): void
     {
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if ($masterFund) {
+            $masterFund->increment('balance', $this->amount);
+        }
+
         if ($this->user) {
-            $this->user->creditFundAccount($this->amount);
             $this->user->updateOutstandingLoans();
         }
     }
@@ -292,12 +296,18 @@ class Transaction extends Model
     }
 
     // Private processing methods
+    /**
+     * External import: amount imported to master bank as debit (balance increases).
+     * When assigned to a user (contribution/repayment), their bank is credited.
+     */
     private function processExternalImport(): void
     {
         $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
+        if (!$masterBank) {
+            throw new \RuntimeException('Master bank account not found.');
+        }
         $masterBank->increment('balance', $this->amount);
 
-        // When assigned to a member, also credit their bank account.
         if ($this->user_id && $this->user?->member) {
             $this->user->creditBankAccount($this->amount);
         }
@@ -315,24 +325,33 @@ class Transaction extends Model
         $this->user->creditBankAccount($this->amount);
     }
 
+    /**
+     * Contribution: user bank debited, user fund credited, master fund credited.
+     */
     private function processContribution(): void
     {
         $this->user->debitBankAccount($this->amount);
         $this->user->creditFundAccount($this->amount);
-        
+
         $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        $masterFund->increment('balance', $this->amount);
+        if ($masterFund) {
+            $masterFund->increment('balance', $this->amount);
+        }
     }
 
+    /**
+     * Loan repayment: user bank debited, user fund credited, master fund credited, loan credited.
+     */
     private function processLoanRepayment(): void
     {
         $this->user->debitBankAccount($this->amount);
         $this->user->creditFundAccount($this->amount);
-        
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        $masterFund->increment('balance', $this->amount);
 
-        // Update loan (handled in Loan model)
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if ($masterFund) {
+            $masterFund->increment('balance', $this->amount);
+        }
+
         if ($this->reference) {
             $loan = Loan::where('loan_id', $this->reference)->first();
             if ($loan) {
@@ -341,10 +360,22 @@ class Transaction extends Model
         }
     }
 
+    /**
+     * Loan disbursement: master fund is debited; loan is assigned to user via reference.
+     * Disbursement is handled off-system (cash/external transfer), so user bank is not credited.
+     */
     private function processLoanDisbursement(): void
     {
-        $this->user->debitFundAccount($this->amount);
-        $this->user->updateOutstandingLoans();
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if (!$masterFund || (float) $masterFund->balance < (float) $this->amount) {
+            throw new \Exception("Insufficient master fund balance for loan disbursement");
+        }
+
+        $masterFund->decrement('balance', $this->amount);
+
+        if ($this->user) {
+            $this->user->updateOutstandingLoans();
+        }
     }
 
     private function processAdjustment(): void

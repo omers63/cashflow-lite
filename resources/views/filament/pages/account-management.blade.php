@@ -6,15 +6,15 @@
         <x-slot name="description">Master Bank aggregates external bank imports. Master Fund tracks user contributions minus outstanding loans.</x-slot>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            @php $masterBank = $this->masterBank; @endphp
+            @php $masterBank = $this->masterBankSummary; @endphp
             @if ($masterBank)
-                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterBank]) }}"
+                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterBank['id']]) }}"
                    class="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-primary-500 dark:hover:border-primary-500 transition-colors">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Master Bank Account</p>
-                            <p class="text-2xl font-bold">${{ number_format($masterBank->balance, 2) }}</p>
-                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterBank->balance_date?->format('M d, Y') }}</p>
+                            <p class="text-2xl font-bold">${{ number_format($masterBank['balance'], 2) }}</p>
+                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterBank['balance_date'] }}</p>
                         </div>
                         <span class="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden text-primary-500 [&>svg]:!size-6">
                             <x-heroicon-m-banknotes />
@@ -23,15 +23,15 @@
                 </a>
             @endif
 
-            @php $masterFund = $this->masterFund; @endphp
+            @php $masterFund = $this->masterFundSummary; @endphp
             @if ($masterFund)
-                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterFund]) }}"
+                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterFund['id']]) }}"
                    class="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-success-500 dark:hover:border-success-500 transition-colors">
                     <div class="flex items-center justify-between">
                         <div>
                             <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Master Fund Account</p>
-                            <p class="text-2xl font-bold">${{ number_format($masterFund->balance, 2) }}</p>
-                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterFund->balance_date?->format('M d, Y') }}</p>
+                            <p class="text-2xl font-bold">${{ number_format($masterFund['balance'], 2) }}</p>
+                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterFund['balance_date'] }}</p>
                         </div>
                         <span class="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden text-success-500 [&>svg]:!size-6">
                             <x-heroicon-m-wallet />

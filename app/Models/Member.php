@@ -215,8 +215,10 @@ class Member extends Model
     /**
      * Contribute the member's allowed_allocation amount from their bank account to their fund account.
      * Also increments the master fund balance. Creates a proper contribution transaction.
+     *
+     * @param  \DateTimeInterface|string|null  $transactionDate  Optional date for the contribution (default: now).
      */
-    public function contribute(?float $amount = null, ?string $notes = null): Transaction
+    public function contribute(?float $amount = null, ?string $notes = null, \DateTimeInterface|string|null $transactionDate = null): Transaction
     {
         $amount = $amount ?? (int) ($this->allowed_allocation ?? 500);
 
@@ -228,12 +230,14 @@ class Member extends Model
             );
         }
 
-        return DB::transaction(function () use ($amount, $notes): Transaction {
+        $date = $transactionDate ? \Carbon\Carbon::parse($transactionDate) : now();
+
+        return DB::transaction(function () use ($amount, $notes, $date): Transaction {
             $user = $this->user;
 
             $transaction = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('CTB'),
-                'transaction_date' => now(),
+                'transaction_date' => $date,
                 'type' => 'contribution',
                 'from_account' => "Member Bank Account - {$user->user_code}",
                 'to_account' => "Member Fund Account - {$user->user_code}",
@@ -450,46 +454,61 @@ class Member extends Model
     }
 
     /**
+     * Compute bank account balance from transactions without persisting.
+     * Use for reconciliation checks (MEM1). Credits = external_import (when assigned),
+     * master_to_user_bank, allocations, import_deposit. Loan disbursement is off-system, so not included.
+     */
+    public function computeBankAccountBalanceFromTransactions(): float
+    {
+        $credits = (float) $this->user->transactions()
+            ->whereIn('type', ['master_to_user_bank', 'external_import', 'allocation_from_parent', 'import_deposit'])
+            ->sum('amount');
+        $debits = (float) $this->user->transactions()
+            ->whereIn('type', ['contribution', 'allocation_to_dependant', 'loan_repayment'])
+            ->sum('amount');
+        return $credits - $debits;
+    }
+
+    /**
+     * Compute fund account balance from transactions without persisting.
+     * Use for reconciliation checks (MEM2).
+     */
+    public function computeFundAccountBalanceFromTransactions(): float
+    {
+        $credits = (float) $this->user->transactions()
+            ->whereIn('type', ['contribution', 'loan_repayment'])
+            ->sum('amount');
+        return $credits;
+    }
+
+    /**
      * Recalculate bank_account_balance from this member's user transactions.
      */
     public function recalculateBankAccountBalanceFromTransactions(): float
     {
-        $credits = $this->user->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'external_import', 'allocation_from_parent', 'import_deposit'])
-            ->sum('amount');
-        $debits = $this->user->transactions()
-            ->whereIn('type', ['contribution', 'allocation_to_dependant', 'loan_repayment'])
-            ->sum('amount');
-        $balance = (float) $credits - (float) $debits;
+        $balance = $this->computeBankAccountBalanceFromTransactions();
         $this->update(['bank_account_balance' => $balance]);
-
         return $balance;
     }
 
     /**
      * Recalculate fund_account_balance from this member's user transactions.
-     * Credits: contribution, loan_repayment
-     * Debits: loan_disbursement
+     * Credits: contribution, loan_repayment.
      */
     public function recalculateFundAccountBalanceFromTransactions(): float
     {
-        $credits = $this->user->transactions()
-            ->whereIn('type', ['contribution', 'loan_repayment'])
-            ->sum('amount');
-        $debits = $this->user->transactions()
-            ->whereIn('type', ['loan_disbursement'])
-            ->sum('amount');
-        $balance = (float) $credits - (float) $debits;
+        $balance = $this->computeFundAccountBalanceFromTransactions();
         $this->update(['fund_account_balance' => $balance]);
-
         return $balance;
     }
 
     /**
      * Allocate funds from this member's bank account to a dependant's bank account.
      * Creates two linked transactions (allocation_to_dependant / allocation_from_parent) and updates balances.
+     *
+     * @param  \DateTimeInterface|string|null  $transactionDate  Optional date for the allocation (default: now).
      */
-    public function allocateToDependant(Member $dependent, float $amount, ?string $notes = null): void
+    public function allocateToDependant(Member $dependent, float $amount, ?string $notes = null, \DateTimeInterface|string|null $transactionDate = null): void
     {
         if ($dependent->parent_id !== $this->id) {
             throw new \InvalidArgumentException('The target member is not a dependant of this member.');
@@ -501,13 +520,15 @@ class Member extends Model
             throw new \Exception('Insufficient bank account balance to allocate.');
         }
 
-        DB::transaction(function () use ($dependent, $amount, $notes): void {
+        $date = $transactionDate ? \Carbon\Carbon::parse($transactionDate) : now();
+
+        DB::transaction(function () use ($dependent, $amount, $notes, $date): void {
             $txIdOut = Transaction::generateTransactionId('ALLOUT');
             $txIdIn = Transaction::generateTransactionId('ALLOIN');
 
             $outTx = Transaction::create([
                 'transaction_id' => $txIdOut,
-                'transaction_date' => now(),
+                'transaction_date' => $date,
                 'type' => 'allocation_to_dependant',
                 'from_account' => 'member_bank',
                 'to_account' => 'member_bank',
@@ -523,7 +544,7 @@ class Member extends Model
 
             $inTx = Transaction::create([
                 'transaction_id' => $txIdIn,
-                'transaction_date' => now(),
+                'transaction_date' => $date,
                 'type' => 'allocation_from_parent',
                 'from_account' => 'member_bank',
                 'to_account' => 'member_bank',

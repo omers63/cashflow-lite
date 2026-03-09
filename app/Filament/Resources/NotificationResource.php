@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use BackedEnum;
+use Filament\Actions;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -59,7 +60,12 @@ class NotificationResource extends Resource
             ->recordUrl(null)
             ->recordAction(null)
             ->actions([])
-            ->bulkActions([]);
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make()
+                        ->authorize(fn () => true),
+                ]),
+            ]);
     }
 
     public static function infolist(Schema $schema): Schema

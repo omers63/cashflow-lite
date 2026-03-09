@@ -20,6 +20,7 @@ class ExceptionResource extends Resource
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-exclamation-triangle';
     protected static string|\UnitEnum|null $navigationGroup = 'System';
     protected static ?int $navigationSort = 6;
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function form(Schema $schema): Schema
     {
@@ -36,6 +37,7 @@ class ExceptionResource extends Resource
                         'balance_mismatch' => 'Balance Mismatch',
                         'negative_balance' => 'Negative Balance',
                         'loan_payment_mismatch' => 'Loan Payment Mismatch',
+                        'loan_delinquency' => 'Loan Delinquency',
                         'missing_transaction' => 'Missing Transaction',
                         'fund_account_negative' => 'Fund Account Negative',
                         'other' => 'Other',
@@ -128,6 +130,10 @@ class ExceptionResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('severity'),
                 Tables\Filters\SelectFilter::make('status'),
+                Tables\Filters\SelectFilter::make('related_reconciliation_id')
+                    ->relationship('relatedReconciliation', 'id', fn ($query, $get) => $query->orderBy('reconciliation_date', 'desc'))
+                    ->getOptionLabelFromRecordUsing(fn ($record) => $record->reconciliation_date?->format('Y-m-d H:i') . ' (' . ($record->all_passed ? 'passed' : 'failed') . ')')
+                    ->label('Reconciliation'),
                 Tables\Filters\Filter::make('overdue')
                     ->query(fn($query) => $query->overdue()),
                 Tables\Filters\Filter::make('open')

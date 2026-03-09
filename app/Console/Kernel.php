@@ -14,6 +14,12 @@ class Kernel extends ConsoleKernel
         $schedule->call(function () {
             app(ReconciliationService::class)->runDailyReconciliation();
         })->dailyAt('23:30');
+
+        // Check exception SLAs hourly (mark breached)
+        $schedule->command('exceptions:check-sla')->hourly();
+
+        // Monthly balance snapshot on the 1st at 00:15 (for previous month)
+        $schedule->command('snapshots:monthly')->monthlyOn(1, '00:15');
     }
 
     protected function commands(): void

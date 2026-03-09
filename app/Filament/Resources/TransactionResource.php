@@ -137,31 +137,12 @@ class TransactionResource extends Resource
                     ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
-                    ->getStateUsing(function (Transaction $record): float {
-                        $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
-                        return in_array($record->type, $debits, true)
-                            ? -(float) $record->amount
-                            : (float) $record->amount;
-                    })
-                    ->formatStateUsing(fn ($state) => $state >= 0
-                        ? '$' . number_format($state, 2)
-                        : '-$' . number_format(abs($state), 2))
-                    ->color(fn ($state) => $state < 0 ? 'danger' : 'success')
-                    ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
+                    ->money('USD')
+                    ->sortable()
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
-                            ->label('Net')
-                            // Force hasQueryModification() = true so Filament skips SQL pre-computation
-                            // and calls using() instead of raw SUM(amount).
-                            ->query(fn ($q) => $q)
-                            ->using(function (string $attribute, $query) {
-                                $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
-                                $list = "'" . implode("','", $debits) . "'";
-                                return (float) ($query->selectRaw(
-                                    "SUM(CASE WHEN type IN ({$list}) THEN -amount ELSE amount END) as net"
-                                )->value('net') ?? 0);
-                            })
-                            ->formatStateUsing(fn ($state) => ($state >= 0 ? '$' : '-$') . number_format(abs((float) $state), 2)),
+                            ->label('Total')
+                            ->money('USD'),
                     ]),
 
                 Tables\Columns\TextColumn::make('user.name')
@@ -210,6 +191,16 @@ class TransactionResource extends Resource
                     ->searchable()
                     ->preload(),
 
+                Tables\Filters\SelectFilter::make('from_account')
+                    ->label('From account')
+                    ->options(fn () => Transaction::query()->distinct()->orderBy('from_account')->pluck('from_account', 'from_account')->toArray())
+                    ->searchable(),
+
+                Tables\Filters\SelectFilter::make('to_account')
+                    ->label('To account')
+                    ->options(fn () => Transaction::query()->distinct()->orderBy('to_account')->pluck('to_account', 'to_account')->toArray())
+                    ->searchable(),
+
                 Tables\Filters\Filter::make('transaction_date')
                     ->schema([
                         Forms\Components\DatePicker::make('from')
@@ -235,8 +226,7 @@ class TransactionResource extends Resource
             ])
             ->recordActions([
                 Actions\ViewAction::make(),
-                Actions\EditAction::make()
-                    ->visible(fn($record) => $record->status === 'pending'),
+                Actions\EditAction::make(),
 
                 Actions\Action::make('assign_user')
                     ->label('Assign Member')
@@ -355,16 +345,7 @@ class TransactionResource extends Resource
                         Infolists\Components\TextEntry::make('from_account'),
                         Infolists\Components\TextEntry::make('to_account'),
                         Infolists\Components\TextEntry::make('amount')
-                            ->getStateUsing(function (Transaction $record): float {
-                                $debits = ['contribution', 'loan_repayment', 'allocation_to_dependant'];
-                                return in_array($record->type, $debits, true)
-                                    ? -(float) $record->amount
-                                    : (float) $record->amount;
-                            })
-                            ->formatStateUsing(fn ($state) => $state >= 0
-                                ? '$' . number_format($state, 2)
-                                : '-$' . number_format(abs($state), 2))
-                            ->color(fn ($state) => $state < 0 ? 'danger' : 'success'),
+                            ->money('USD'),
                         Infolists\Components\TextEntry::make('reference'),
                     ])
                     ->columns(2),

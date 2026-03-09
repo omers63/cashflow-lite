@@ -18,12 +18,13 @@ class MasterAccount extends Model
 
         if ($this->account_type === 'master_bank') {
             $credits = (float) (clone $query)->where('type', 'external_import')->sum('amount');
-            $debits = (float) (clone $query)->where('type', 'master_to_user_bank')->sum('amount');
+            $debits = (float) (clone $query)
+                ->whereIn('type', ['master_to_user_bank', 'loan_disbursement'])
+                ->sum('amount');
             $balance = $credits - $debits;
         } elseif ($this->account_type === 'master_fund') {
             $credits = (float) (clone $query)->whereIn('type', ['contribution', 'loan_repayment'])->sum('amount');
-            $debits = (float) (clone $query)->where('type', 'loan_disbursement')->sum('amount');
-            $balance = $credits - $debits;
+            $balance = $credits;
         } else {
             return (float) $this->balance;
         }

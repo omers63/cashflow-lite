@@ -252,6 +252,16 @@ class Loan extends Model
     }
 
     /**
+     * Recompute outstanding balance from original amount and payment history.
+     * outstanding = original_amount - sum(principal_amount from payments).
+     */
+    public function recomputeOutstandingBalanceFromPayments(): float
+    {
+        $principalPaid = (float) $this->payments()->sum('principal_amount');
+        return max(0, (float) $this->original_amount - $principalPaid);
+    }
+
+    /**
      * Get remaining term in months
      */
     public function getRemainingTermAttribute(): int

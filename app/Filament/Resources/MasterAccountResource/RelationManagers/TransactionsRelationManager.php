@@ -56,12 +56,36 @@ class TransactionsRelationManager extends RelationManager
                     ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
-                    ->money('USD')
-                    ->sortable()
+                    ->getStateUsing(function (Transaction $record): float {
+                        if ($this->getOwnerRecord()->account_type !== 'master_bank') {
+                            return (float) $record->amount;
+                        }
+                        // Debits from master bank show as negative
+                        $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
+                        return in_array($record->type, $debitTypes, true)
+                            ? -(float) $record->amount
+                            : (float) $record->amount;
+                    })
+                    ->formatStateUsing(function ($state): string {
+                        return $state >= 0
+                            ? '$' . number_format($state, 2)
+                            : '-$' . number_format(abs($state), 2);
+                    })
+                    ->color(fn ($state): ?string => $state < 0 ? 'danger' : null)
+                    ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
-                            ->money('USD')
-                            ->label('Total'),
+                            ->label('Net')
+                            ->query(fn ($q) => $q)
+                            ->using(function (string $attribute, $query) {
+                                $records = $query->get();
+                                $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
+                                return $records->sum(function ($row) use ($debitTypes) {
+                                    $amount = (float) $row->amount;
+                                    return in_array($row->type, $debitTypes, true) ? -$amount : $amount;
+                                });
+                            })
+                            ->formatStateUsing(fn ($state): string => ($state >= 0 ? '' : '-') . '$' . number_format(abs((float) $state), 2)),
                     ]),
 
                 Tables\Columns\TextColumn::make('user.name')
@@ -100,6 +124,16 @@ class TransactionsRelationManager extends RelationManager
                         'reversed' => 'Reversed',
                     ])
                     ->multiple(),
+
+                Tables\Filters\SelectFilter::make('from_account')
+                    ->label('From account')
+                    ->options(fn () => Transaction::query()->distinct()->orderBy('from_account')->pluck('from_account', 'from_account')->toArray())
+                    ->searchable(),
+
+                Tables\Filters\SelectFilter::make('to_account')
+                    ->label('To account')
+                    ->options(fn () => Transaction::query()->distinct()->orderBy('to_account')->pluck('to_account', 'to_account')->toArray())
+                    ->searchable(),
 
                 Tables\Filters\Filter::make('transaction_date')
                     ->label('Transaction Date')
@@ -202,6 +236,51 @@ class TransactionsRelationManager extends RelationManager
             ->selectable(true)
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
+                    Actions\BulkAction::make('assign_member')
+                        ->label('Assign Member')
+                        ->icon('heroicon-o-user-plus')
+                        ->form([
+                            Forms\Components\Select::make('member_id')
+                                ->label('Member')
+                                ->options(
+                                    fn () => Member::with('user')
+                                        ->get()
+                                        ->mapWithKeys(fn (Member $m) => [
+                                            $m->id => $m->user
+                                                ? "{$m->user->name} ({$m->user->user_code})"
+                                                : "Member #{$m->id}",
+                                        ])
+                                )
+                                ->searchable()
+                                ->required(),
+                        ])
+                        ->action(function (array $data, $records): void {
+                            $member = Member::find($data['member_id']);
+                            if (!$member) {
+                                return;
+                            }
+                            $assigned = 0;
+                            DB::transaction(function () use ($records, $member, &$assigned): void {
+                                foreach ($records as $record) {
+                                    if ($record->type !== 'external_import' || $record->user_id) {
+                                        continue;
+                                    }
+                                    $member->creditBankAccount((float) $record->amount);
+                                    $record->update(['user_id' => $member->user_id]);
+                                    $assigned++;
+                                }
+                            });
+                            \Filament\Notifications\Notification::make()
+                                ->title('Assign Member')
+                                ->body($assigned . ' transaction(s) assigned to member.')
+                                ->success()
+                                ->send();
+                            $this->getOwnerRecord()->refresh();
+                            $this->dispatch('refreshMasterAccountRecord');
+                        })
+                        ->deselectRecordsAfterCompletion()
+                        ->visible(fn (): bool => $this->getOwnerRecord()->account_type === 'master_bank'),
+
                     Actions\DeleteBulkAction::make()
                         ->authorize(fn() => true)
                         ->after(function (): void {
@@ -225,8 +304,8 @@ class TransactionsRelationManager extends RelationManager
         $query = Transaction::query();
 
         return match ($owner->account_type) {
-            'master_bank' => $query->whereIn('type', ['external_import', 'master_to_user_bank']),
-            'master_fund' => $query->whereIn('type', ['contribution', 'loan_repayment', 'loan_disbursement']),
+            'master_bank' => $query->whereIn('type', ['external_import', 'master_to_user_bank', 'loan_disbursement']),
+            'master_fund' => $query->whereIn('type', ['contribution', 'loan_repayment']),
             default => $query->whereRaw('0 = 1'),
         };
     }
