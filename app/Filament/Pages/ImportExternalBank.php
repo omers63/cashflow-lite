@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\ExternalBankAccount;
 use App\Models\ExternalBankImport;
 use App\Models\MasterAccount;
+use App\Models\Setting;
 use App\Services\ExternalBankExcelParser;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Filament\Forms;
@@ -681,7 +682,7 @@ class ImportExternalBank extends Page implements HasTable
 
             Notification::make()
                 ->title('Import complete')
-                ->body($imported . ' transaction(s) added.' . ($duplicates > 0 ? ' ' . $duplicates . ' duplicate(s) skipped.' : '') . ' Use "Import to Master" on the bank account\'s Transactions tab to post to Master Bank.')
+                ->body($this->getImportSuccessBody($imported, $duplicates))
                 ->success()
                 ->duration(5000)
                 ->send();
@@ -694,6 +695,23 @@ class ImportExternalBank extends Page implements HasTable
                 ->duration(10000)
                 ->send();
         }
+    }
+
+    protected function getImportSuccessBody(int $imported, int $duplicates): string
+    {
+        $total = $imported + $duplicates;
+        $custom = Setting::renderTemplate('import_success_message', [
+            'imported_count' => $imported,
+            'duplicate_count' => $duplicates,
+            'total_count' => $total,
+        ]);
+        if ($custom !== '') {
+            return $custom;
+        }
+
+        return $imported . ' transaction(s) added.'
+            . ($duplicates > 0 ? ' ' . $duplicates . ' duplicate(s) skipped.' : '')
+            . ' Use "Import to Master" on the bank account\'s Transactions tab to post to Master Bank.';
     }
 
     protected function importExcelEntry(string $path, int $bankId): void
@@ -758,7 +776,7 @@ class ImportExternalBank extends Page implements HasTable
 
             Notification::make()
                 ->title('Import complete')
-                ->body($imported . ' transaction(s) added.' . ($duplicates > 0 ? ' ' . $duplicates . ' duplicate(s) skipped.' : '') . ' Use "Import to Master" on the bank account\'s Transactions tab to post to Master Bank.')
+                ->body($this->getImportSuccessBody($imported, $duplicates))
                 ->success()
                 ->duration(5000)
                 ->send();

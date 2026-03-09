@@ -257,8 +257,10 @@ class Member extends Model
     /**
      * Make a loan repayment for the given loan using its installment amount.
      * Debits member's bank, credits member's fund + master fund, and records the loan payment.
+     *
+     * @param  \DateTimeInterface|string|null  $transactionDate  Optional date for the repayment (default: now).
      */
-    public function makeRepayment(Loan $loan): Transaction
+    public function makeRepayment(Loan $loan, \DateTimeInterface|string|null $transactionDate = null): Transaction
     {
         if ($loan->status !== 'active') {
             throw new \Exception('Only active loans can receive repayments.');
@@ -276,12 +278,14 @@ class Member extends Model
             );
         }
 
-        return DB::transaction(function () use ($loan, $amount): Transaction {
+        $date = $transactionDate ? \Carbon\Carbon::parse($transactionDate) : now();
+
+        return DB::transaction(function () use ($loan, $amount, $date): Transaction {
             $user = $this->user;
 
             $transaction = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('LNRPY'),
-                'transaction_date' => now(),
+                'transaction_date' => $date,
                 'type' => 'loan_repayment',
                 'from_account' => "Member Bank Account - {$user->user_code}",
                 'to_account' => "Member Fund Account - {$user->user_code}",
@@ -521,8 +525,10 @@ class Member extends Model
         }
 
         $date = $transactionDate ? \Carbon\Carbon::parse($transactionDate) : now();
+        $parentUser = $this->user;
+        $dependentUser = $dependent->user;
 
-        DB::transaction(function () use ($dependent, $amount, $notes, $date): void {
+        DB::transaction(function () use ($dependent, $amount, $notes, $date, $parentUser, $dependentUser): void {
             $txIdOut = Transaction::generateTransactionId('ALLOUT');
             $txIdIn = Transaction::generateTransactionId('ALLOIN');
 
@@ -530,8 +536,8 @@ class Member extends Model
                 'transaction_id' => $txIdOut,
                 'transaction_date' => $date,
                 'type' => 'allocation_to_dependant',
-                'from_account' => 'member_bank',
-                'to_account' => 'member_bank',
+                'from_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
+                'to_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
                 'amount' => $amount,
                 'user_id' => $this->user_id,
                 'reference' => null,
@@ -546,8 +552,8 @@ class Member extends Model
                 'transaction_id' => $txIdIn,
                 'transaction_date' => $date,
                 'type' => 'allocation_from_parent',
-                'from_account' => 'member_bank',
-                'to_account' => 'member_bank',
+                'from_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
+                'to_account' => $dependentUser ? "Member Bank Account - {$dependentUser->user_code}" : 'Member Bank Account',
                 'amount' => $amount,
                 'user_id' => $dependent->user_id,
                 'reference' => null,

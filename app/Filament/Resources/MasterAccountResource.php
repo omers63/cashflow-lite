@@ -149,6 +149,38 @@ class MasterAccountResource extends Resource
                             ->dateTime(),
                     ])
                     ->columns(2),
+
+                Components\Section::make('Projected balance (current month)')
+                    ->description('If contributions and loan repayments for this month are run and all pending loans in the queue are disbursed. See Monthly Collections for period selector and loan queue.')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('projected_balance_display')
+                            ->label('Projected Master Fund')
+                            ->state(function (MasterAccount $record): string {
+                                if ($record->account_type !== 'master_fund') {
+                                    return '—';
+                                }
+                                $service = app(\App\Services\MasterFundProjectionService::class);
+                                $year = (int) now()->format('Y');
+                                $month = (int) now()->format('n');
+                                $p = $service->getProjection($year, $month);
+                                return '$' . number_format($p['projected_balance'], 2)
+                                    . ' (current: $' . number_format($p['current_balance'], 2)
+                                    . ', +contrib/repay: $' . number_format($p['projected_contributions'] + $p['projected_repayments'], 2)
+                                    . ', −queue: $' . number_format($p['pending_disbursements'], 2)
+                                    . ', ' . $p['loan_queue_count'] . ' in queue)';
+                            })
+                            ->weight('bold')
+                            ->visible(fn (MasterAccount $record): bool => $record->account_type === 'master_fund'),
+                        Infolists\Components\TextEntry::make('monthly_collections_link')
+                            ->label('')
+                            ->state(fn (MasterAccount $record): string => $record->account_type === 'master_fund' ? 'View Monthly Collections' : '')
+                            ->formatStateUsing(fn (string $s): string => $s)
+                            ->url(fn (MasterAccount $record): ?string => $record->account_type === 'master_fund' ? url('/admin/monthly-collections') : null)
+                            ->visible(fn (MasterAccount $record): bool => $record->account_type === 'master_fund')
+                            ->openUrlInNewTab(false),
+                    ])
+                    ->visible(fn (MasterAccount $record): bool => $record->account_type === 'master_fund')
+                    ->collapsible(),
             ]);
     }
 

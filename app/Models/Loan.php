@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
+use App\Models\Setting;
 
 /**
  * @property float $total_paid
@@ -187,7 +188,9 @@ class Loan extends Model
         $balance = $this->original_amount;
         $monthlyRate = $this->interest_rate / 100 / 12;
         $payment = $this->monthly_payment;
-        $paymentDate = Carbon::parse($this->origination_date)->addMonth();
+        $paymentDate = $this->next_payment_date
+            ? Carbon::parse($this->next_payment_date)
+            : Carbon::parse($this->origination_date)->addMonth();
 
         for ($i = 1; $i <= $this->term_months; $i++) {
             $interest = round($balance * $monthlyRate, 2);
@@ -281,11 +284,25 @@ class Loan extends Model
 
         $tier = Member::loanTierFor((float) $this->original_amount);
 
+        // Compute first repayment date based on contribution cycles:
+        // - Contributions for a month are due on collections_due_day of the following month.
+        // - First repayment is scheduled one full cycle after the first due date on/after disbursement.
+        $disbursedAt = Carbon::now();
+        $dueDay = Setting::getInt('collections_due_day', 5);
+        $dueDay = max(1, min(28, $dueDay));
+        $firstDueThisMonth = $disbursedAt->copy()->day($dueDay)->startOfDay();
+        if ($disbursedAt->lessThanOrEqualTo($firstDueThisMonth)) {
+            $firstCollectionDue = $firstDueThisMonth;
+        } else {
+            $firstCollectionDue = $firstDueThisMonth->copy()->addMonthNoOverflow();
+        }
+        $firstRepaymentDate = $firstCollectionDue->copy()->addMonthNoOverflow();
+
         $this->update([
             'status' => 'active',
             'approved_by' => $approverId,
             'approved_at' => now(),
-            'next_payment_date' => Carbon::parse($this->origination_date)->addMonth(),
+            'next_payment_date' => $firstRepaymentDate,
             'installment_amount' => $tier['installment'] ?? $this->monthly_payment,
             'maturity_fund_balance' => $tier['maturity_balance'] ?? 0,
             'monthly_payment' => $tier['installment'] ?? $this->monthly_payment,
@@ -379,6 +396,17 @@ class Loan extends Model
             ->orderByRaw(
                 '(SELECT COUNT(*) FROM loans AS l2 WHERE l2.member_id = loans.member_id AND l2.id != loans.id) ASC'
             )
+            ->orderBy('created_at', 'asc');
+    }
+
+    /**
+     * Loan queue: qualified and pending/unapproved loans ordered by loan tier (original_amount)
+     * then submission date (created_at). Used for projected master fund (pending disbursements).
+     */
+    public function scopeLoanQueue($query)
+    {
+        return $query->where('status', 'pending')
+            ->orderBy('original_amount', 'asc')
             ->orderBy('created_at', 'asc');
     }
 
