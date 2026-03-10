@@ -56,8 +56,8 @@ class ViewMember extends ViewRecord
                 ->visible(fn() => $member->isParentMember())
                 ->form(function () use ($member, $dependants) {
                     $allocationOptions = array_combine(
-                        \App\Models\Member::ALLOCATION_OPTIONS,
-                        array_map(fn($v) => '$' . number_format($v, 0), \App\Models\Member::ALLOCATION_OPTIONS)
+                        Member::ALLOCATION_OPTIONS,
+                        array_map(fn($v) => '$' . number_format($v, 0), Member::ALLOCATION_OPTIONS)
                     );
                     $fields = [
                         Forms\Components\Select::make("allowance_{$member->id}")
@@ -427,7 +427,7 @@ class ViewMember extends ViewRecord
                     $this->record = $member->fresh();
                     $this->refreshInfolist();
                     $this->dispatch('refreshTransactions');
-                    \Filament\Notifications\Notification::make()
+                    Notification::make()
                         ->title('Balances recalculated')
                         ->success()
                         ->send();

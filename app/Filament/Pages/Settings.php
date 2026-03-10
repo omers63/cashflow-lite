@@ -21,6 +21,8 @@ class Settings extends Page
     protected static ?string $slug = 'settings';
     protected string $view = 'filament.pages.settings';
 
+    public ?array $data = [];
+
     public function mount(): void
     {
         $params = Setting::getByGroup(Setting::GROUP_PARAMETER);
@@ -37,9 +39,27 @@ class Settings extends Page
             $templateState[$key] = $templates[$key] ?? $def['default'] ?? '';
         }
 
+        // Dashboard widget toggles
+        $widgetConfig = config('settings.dashboard_widgets', []);
+        $adminJson = Setting::get('dashboard_widgets_admin');
+        $memberJson = Setting::get('dashboard_widgets_member');
+        $adminSaved = $adminJson ? json_decode($adminJson, true) : [];
+        $memberSaved = $memberJson ? json_decode($memberJson, true) : [];
+
+        $adminWidgets = [];
+        foreach ($widgetConfig['admin'] ?? [] as $key => $def) {
+            $adminWidgets[$key] = $adminSaved[$key] ?? $def['default'] ?? true;
+        }
+        $memberWidgets = [];
+        foreach ($widgetConfig['member'] ?? [] as $key => $def) {
+            $memberWidgets[$key] = $memberSaved[$key] ?? $def['default'] ?? true;
+        }
+
         $this->form->fill([
             'parameters' => $parameterState,
             'templates' => $templateState,
+            'admin_widgets' => $adminWidgets,
+            'member_widgets' => $memberWidgets,
         ]);
     }
 
@@ -52,6 +72,7 @@ class Settings extends Page
     {
         $paramConfig = config('settings.parameters', []);
         $templateConfig = config('settings.templates', []);
+        $widgetConfig = config('settings.dashboard_widgets', []);
 
         $parameterFields = [];
         foreach ($paramConfig as $key => $def) {
@@ -78,6 +99,20 @@ class Settings extends Page
                 ->columnSpanFull();
         }
 
+        // Widget toggle fields
+        $adminWidgetFields = [];
+        foreach ($widgetConfig['admin'] ?? [] as $key => $def) {
+            $adminWidgetFields[] = Forms\Components\Toggle::make("admin_widgets.{$key}")
+                ->label($def['label'] ?? $key)
+                ->default($def['default'] ?? true);
+        }
+        $memberWidgetFields = [];
+        foreach ($widgetConfig['member'] ?? [] as $key => $def) {
+            $memberWidgetFields[] = Forms\Components\Toggle::make("member_widgets.{$key}")
+                ->label($def['label'] ?? $key)
+                ->default($def['default'] ?? true);
+        }
+
         return $schema
             ->schema([
                 Components\Tabs::make('Settings')
@@ -92,9 +127,27 @@ class Settings extends Page
                         Components\Tabs\Tab::make('Templates')
                             ->icon('heroicon-o-document-text')
                             ->schema($templateFields),
+
+                        Components\Tabs\Tab::make('Dashboard Widgets')
+                            ->icon('heroicon-o-squares-2x2')
+                            ->schema([
+                                Components\Section::make('Admin Dashboard')
+                                    ->description('Choose which widgets appear on the admin dashboard.')
+                                    ->schema([
+                                        Components\Grid::make(3)
+                                            ->schema($adminWidgetFields),
+                                    ]),
+                                Components\Section::make('Member Dashboard')
+                                    ->description('Choose which sections appear on the member dashboard.')
+                                    ->schema([
+                                        Components\Grid::make(3)
+                                            ->schema($memberWidgetFields),
+                                    ]),
+                            ]),
                     ])
                     ->columnSpanFull(),
-            ]);
+            ])
+            ->statePath('data');
     }
 
     public function save(): void
@@ -102,9 +155,14 @@ class Settings extends Page
         $data = $this->form->getState();
         Setting::setByGroup(Setting::GROUP_PARAMETER, $data['parameters'] ?? []);
         Setting::setByGroup(Setting::GROUP_TEMPLATE, $data['templates'] ?? []);
+
+        // Save widget toggles as JSON
+        Setting::set('dashboard_widgets_admin', json_encode($data['admin_widgets'] ?? []));
+        Setting::set('dashboard_widgets_member', json_encode($data['member_widgets'] ?? []));
+
         Notification::make()
             ->title('Settings saved')
-            ->body('Parameters and templates have been updated.')
+            ->body('Parameters, templates, and dashboard widget preferences have been updated.')
             ->success()
             ->send();
     }

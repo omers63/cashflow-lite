@@ -23,9 +23,10 @@ class CheckExceptionSLA extends Command
 
         foreach ($overdueExceptions as $exception) {
             if (!$exception->sla_breached) {
-                $exception->update(['sla_breached' => true]);
+                Exception::where('id', $exception->id)
+                    ->update(['sla_breached' => true]);
                 $this->warn("- Exception {$exception->exception_id} has breached SLA");
-                
+
                 // Send escalation notification
                 // Notification::send($admins, new SLABreachedNotification($exception));
             }

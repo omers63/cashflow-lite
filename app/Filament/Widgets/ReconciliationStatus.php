@@ -9,6 +9,7 @@ class ReconciliationStatus extends Widget
 {
     protected string $view = 'filament.widgets.reconciliation-status';
     protected static ?int $sort = 1;
+    protected int|string|array $columnSpan = 'full';
 
     public function getLatestProperty()
     {

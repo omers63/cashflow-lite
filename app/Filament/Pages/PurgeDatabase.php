@@ -33,12 +33,12 @@ class PurgeDatabase extends Page
     public static function softDeleteModels(): array
     {
         return [
-            'Transactions'          => \App\Models\Transaction::class,
-            'Users'                 => \App\Models\User::class,
-            'Loans'                 => \App\Models\Loan::class,
-            'External Bank Accounts'=> \App\Models\ExternalBankAccount::class,
+            'Transactions' => \App\Models\Transaction::class,
+            'Users' => \App\Models\User::class,
+            'Loans' => \App\Models\Loan::class,
+            'External Bank Accounts' => \App\Models\ExternalBankAccount::class,
             'External Bank Imports' => \App\Models\ExternalBankImport::class,
-            'Exceptions'            => \App\Models\Exception::class,
+            'Exceptions' => ExceptionModel::class,
         ];
     }
 
@@ -50,10 +50,10 @@ class PurgeDatabase extends Page
     {
         return [
             'Notifications (activity log)' => Activity::class,
-            'Balance snapshots'            => BalanceSnapshot::class,
-            'Reconciliations'             => Reconciliation::class,
-            'Loan payments'               => LoanPayment::class,
-            'Exceptions'                  => ExceptionModel::class,
+            'Balance snapshots' => BalanceSnapshot::class,
+            'Reconciliations' => Reconciliation::class,
+            'Loan payments' => LoanPayment::class,
+            'Exceptions' => ExceptionModel::class,
         ];
     }
 
@@ -160,11 +160,11 @@ class PurgeDatabase extends Page
     public function purgeModel(string $label): void
     {
         $models = static::softDeleteModels();
-        if (! array_key_exists($label, $models)) {
+        if (!array_key_exists($label, $models)) {
             return;
         }
         $model = $models[$label];
-        $count = DB::transaction(fn () => $model::onlyTrashed()->forceDelete());
+        $count = DB::transaction(fn() => $model::onlyTrashed()->forceDelete());
         $this->purged = true;
         Notification::make()
             ->title("{$label} purged")
@@ -179,7 +179,7 @@ class PurgeDatabase extends Page
     public function clearTable(string $label): void
     {
         $tables = static::clearableTables();
-        if (! array_key_exists($label, $tables)) {
+        if (!array_key_exists($label, $tables)) {
             return;
         }
         $model = $tables[$label];

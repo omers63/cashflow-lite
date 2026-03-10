@@ -16,9 +16,7 @@
                             <p class="text-2xl font-bold">${{ number_format($masterBank['balance'], 2) }}</p>
                             <p class="text-xs text-gray-500 mt-1">As of {{ $masterBank['balance_date'] }}</p>
                         </div>
-                        <span class="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden text-primary-500 [&>svg]:!size-6">
-                            <x-heroicon-m-banknotes />
-                        </span>
+                        <x-filament::icon icon="heroicon-m-banknotes" class="h-10 w-10 text-primary-500" />
                     </div>
                 </a>
             @endif
@@ -33,9 +31,7 @@
                             <p class="text-2xl font-bold">${{ number_format($masterFund['balance'], 2) }}</p>
                             <p class="text-xs text-gray-500 mt-1">As of {{ $masterFund['balance_date'] }}</p>
                         </div>
-                        <span class="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden text-success-500 [&>svg]:!size-6">
-                            <x-heroicon-m-wallet />
-                        </span>
+                        <x-filament::icon icon="heroicon-m-wallet" class="h-10 w-10 text-success-500" />
                     </div>
                 </a>
             @endif

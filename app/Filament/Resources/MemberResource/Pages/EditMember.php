@@ -45,8 +45,8 @@ class EditMember extends EditRecord
                 ->visible(fn() => $member->isParentMember())
                 ->form(function () use ($member, $dependants) {
                     $allocationOptions = array_combine(
-                        \App\Models\Member::ALLOCATION_OPTIONS,
-                        array_map(fn($v) => '$' . number_format($v, 0), \App\Models\Member::ALLOCATION_OPTIONS)
+                        Member::ALLOCATION_OPTIONS,
+                        array_map(fn($v) => '$' . number_format($v, 0), Member::ALLOCATION_OPTIONS)
                     );
                     $fields = [
                         Forms\Components\Select::make("allowance_{$member->id}")

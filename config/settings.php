@@ -73,4 +73,38 @@ return [
             'default' => '',
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard widgets (toggle visibility per panel).
+    | Keys here map to widget classes (admin) or Blade sections (member).
+    |--------------------------------------------------------------------------
+    */
+    'dashboard_widgets' => [
+        'admin' => [
+            'quick_actions'         => ['label' => 'Quick Actions',              'default' => true],
+            'stats_overview'        => ['label' => 'Stats Overview',             'default' => true],
+            'open_exceptions'       => ['label' => 'Open Exceptions',            'default' => true],
+            'reconciliation_status' => ['label' => 'Reconciliation Status',      'default' => true],
+            'cash_flow_trend_chart' => ['label' => 'Cash Flow Trend Chart',      'default' => true],
+            'collections_progress'  => ['label' => 'Collections Progress Gauge', 'default' => true],
+            'delinquent_loans'      => ['label' => 'Delinquent Loans',           'default' => true],
+            'pending_loan_queue'    => ['label' => 'Pending Loan Queue',         'default' => true],
+            'external_bank_imports' => ['label' => 'External Bank Imports',      'default' => true],
+            'balance_integrity'     => ['label' => 'Balance Integrity Check',    'default' => true],
+            'upcoming_payments'     => ['label' => 'Upcoming Payments Calendar', 'default' => true],
+            'recent_transactions'   => ['label' => 'Recent Transactions',        'default' => true],
+        ],
+        'member' => [
+            'summary_cards'        => ['label' => 'Summary Cards',             'default' => true],
+            'upcoming_obligations' => ['label' => 'Upcoming Obligations',      'default' => true],
+            'loan_progress'        => ['label' => 'Loan Repayment Progress',   'default' => true],
+            'loan_eligibility'     => ['label' => 'Loan Eligibility',          'default' => true],
+            'contribution_history' => ['label' => 'Contribution History',      'default' => true],
+            'fund_growth'          => ['label' => 'Fund Growth Chart',         'default' => true],
+            'collections_status'   => ['label' => 'Collections Status',        'default' => true],
+            'dependants'           => ['label' => 'Dependant Summary',         'default' => true],
+            'recent_activity'      => ['label' => 'Recent Activity',           'default' => true],
+        ],
+    ],
 ];

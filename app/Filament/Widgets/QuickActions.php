@@ -14,6 +14,7 @@ class QuickActions extends Widget
     protected string $view = 'filament.widgets.quick-actions';
 
     protected static ?int $sort = 0;
+    protected int|string|array $columnSpan = 'full';
 
     public function getMemberIndexUrl(): string
     {
