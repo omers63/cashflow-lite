@@ -22,7 +22,7 @@ class AccountManagement extends Page implements HasTable
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-wallet';
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
-    protected static ?string $navigationLabel = 'Account Management';
+    protected static ?string $navigationLabel = 'Accounts';
     protected static ?int $navigationSort = 1;
     protected static ?string $title = 'Account Lifecycle Management';
     protected string $view = 'filament.pages.account-management';

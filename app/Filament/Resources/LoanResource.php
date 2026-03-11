@@ -59,15 +59,18 @@ class LoanResource extends Resource
 
                         Forms\Components\Hidden::make('user_id'),
 
-                        Forms\Components\Placeholder::make('_fund_balance')
+                        Forms\Components\Hidden::make('_fund_balance'),
+                        Forms\Components\Placeholder::make('_fund_balance_display')
                             ->label('Fund Account Balance')
                             ->content(fn (Get $get) => '$' . number_format((float) ($get('_fund_balance') ?? 0), 2)),
 
-                        Forms\Components\Placeholder::make('_max_loan')
+                        Forms\Components\Hidden::make('_max_loan'),
+                        Forms\Components\Placeholder::make('_max_loan_display')
                             ->label('Maximum Loan Amount (2× fund)')
                             ->content(fn (Get $get) => '$' . number_format((float) ($get('_max_loan') ?? 0), 2)),
 
-                        Forms\Components\Placeholder::make('_eligibility_errors')
+                        Forms\Components\Hidden::make('_eligibility_errors'),
+                        Forms\Components\Placeholder::make('_eligibility_errors_display')
                             ->label('Eligibility')
                             ->content(function (Get $get) {
                                 $err = $get('_eligibility_errors');
@@ -96,7 +99,22 @@ class LoanResource extends Resource
                                 if (! $tier) {
                                     return $amount > 0 ? 'Amount outside loan tier range ($1,000–$300,000)' : null;
                                 }
-                                return 'Tier: $' . number_format($tier['installment']) . '/installment, maturity balance: $' . number_format($tier['maturity_balance']);
+                                $percentage = (float) ($tier['maturity_percentage'] ?? 16);
+                                return 'Tier: $' . number_format($tier['installment_amount']) . '/installment, maturity target: ' . $percentage . '% ($' . number_format($tier['maturity_balance']) . ')';
+                            })
+                            ->rule(function (Get $get) {
+                                return function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    $memberId = (int) $get('member_id');
+                                    if ($memberId) {
+                                        $member = Member::find($memberId);
+                                        if ($member) {
+                                            $error = $member->checkTierAllocation((float) $value);
+                                            if ($error) {
+                                                $fail($error);
+                                            }
+                                        }
+                                    }
+                                };
                             }),
 
                         Forms\Components\TextInput::make('interest_rate')
@@ -137,7 +155,8 @@ class LoanResource extends Resource
                             ->rows(3)
                             ->columnSpanFull(),
                     ])
-                    ->columns(2),
+                    ->columns(2)
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -251,13 +270,22 @@ class LoanResource extends Resource
                         $tier = Member::loanTierFor((float) $record->original_amount);
                         $desc = 'Amount: $' . number_format((float) $record->original_amount, 2);
                         if ($tier) {
-                            $desc .= "\nInstallment: \$" . number_format($tier['installment'], 2)
-                                . "\nMaturity fund balance: \$" . number_format($tier['maturity_balance'], 2);
+                            $percentage = (float) ($tier['maturity_percentage'] ?? 16);
+                            $desc .= "\nInstallment: \$" . number_format($tier['installment_amount'], 2)
+                                . "\nMaturity target (" . $percentage . "%): \$" . number_format($tier['maturity_balance'], 2);
                         }
                         return $desc;
                     })
                         ->action(function (Loan $record) {
                             try {
+                                $member = $record->member;
+                                if ($member) {
+                                    $error = $member->checkTierAllocation((float) $record->original_amount);
+                                    if ($error) {
+                                        throw new \Exception($error);
+                                    }
+                                }
+
                                 $record->approve(auth()->id());
                                 Notification::make()
                                     ->title('Loan approved and disbursed')

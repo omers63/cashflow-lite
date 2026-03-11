@@ -19,23 +19,6 @@ class Member extends Model
     /** Minimum membership duration (in years) required for loan eligibility. */
     public const LOAN_MIN_MEMBERSHIP_YEARS = 1;
 
-    /**
-     * Loan tiers: [min_amount, max_amount, installment_amount, maturity_balance].
-     * The loan is considered matured when the fund portion is repaid and the
-     * member's new fund balance reaches the maturity_balance.
-     */
-    public const LOAN_TIERS = [
-        [1000,   30000,  1000, 5000],
-        [31000,  60000,  1500, 10000],
-        [61000,  90000,  2000, 15000],
-        [91000,  120000, 2500, 20000],
-        [121000, 150000, 3000, 24000],
-        [151000, 180000, 3500, 29000],
-        [181000, 210000, 4000, 34000],
-        [211000, 240000, 4500, 39000],
-        [241000, 270000, 5000, 44000],
-        [271000, 300000, 5500, 50000],
-    ];
 
     protected $fillable = [
         'user_id',
@@ -154,22 +137,57 @@ class Member extends Model
 
     /**
      * Look up the loan tier for a given loan amount.
-     * @return array{min: int, max: int, installment: int, maturity_balance: int}|null
+     * @return array{min_amount: int, max_amount: int, installment_amount: int, maturity_balance: int}|null
      */
     public static function loanTierFor(float $amount): ?array
     {
-        foreach (self::LOAN_TIERS as [$min, $max, $installment, $maturity]) {
+        $tiersJson = Setting::get('loan_tiers');
+        $tiers = $tiersJson ? json_decode($tiersJson, true) : config('settings.loan_tiers', []);
+
+        foreach ($tiers as $tier) {
+            $min = (float) ($tier['min_amount'] ?? 0);
+            $max = (float) ($tier['max_amount'] ?? 0);
             if ($amount >= $min && $amount <= $max) {
-                return [
-                    'min' => $min,
-                    'max' => $max,
-                    'installment' => $installment,
-                    'maturity_balance' => $maturity,
-                ];
+                $percentage = (float) ($tier['maturity_percentage'] ?? 16);
+                $tier['maturity_balance'] = $amount * ($percentage / 100);
+                return $tier;
             }
         }
         return null;
     }
+
+    /**
+     * Check if a requested loan amount exceeds the Master Fund allocation for its respective tier.
+     * Returns an error message string if exceeded, or null if valid.
+     */
+    public function checkTierAllocation(float $amount): ?string
+    {
+        $tier = self::loanTierFor($amount);
+        if (!$tier) {
+            return "Amount outside defined loan tier ranges.";
+        }
+
+        $min = (float) ($tier['min_amount'] ?? 0);
+        $max = (float) ($tier['max_amount'] ?? 0);
+        $allocationPercentage = (float) ($tier['allocation_percentage'] ?? 10);
+
+        $activeLoansInTier = \App\Models\Loan::where('status', 'active')
+            ->whereBetween('original_amount', [$min, $max])
+            ->sum('outstanding_balance');
+
+        $masterFund = \App\Models\MasterAccount::getMasterFund();
+        $masterBalance = $masterFund ? (float) $masterFund->balance : 0.0;
+
+        $allowed = $masterBalance * ($allocationPercentage / 100);
+
+        if (($activeLoansInTier + $amount) > $allowed) {
+            $remaining = max(0, $allowed - $activeLoansInTier);
+            return "Requested amount ($" . number_format($amount, 2) . ") exceeds the {$tier['name']} allocation limit. Remaining allocation: $" . number_format($remaining, 2) . ".";
+        }
+
+        return null;
+    }
+
 
     // ─── Financials (moved from User) ─────────────────────────────────────────
 
@@ -235,22 +253,36 @@ class Member extends Model
         return DB::transaction(function () use ($amount, $notes, $date): Transaction {
             $user = $this->user;
 
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('CTB'),
+            // 1. Debit User Bank
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('CTB-D'),
                 'transaction_date' => $date,
-                'type' => 'contribution',
-                'from_account' => "Member Bank Account - {$user->user_code}",
-                'to_account' => "Member Fund Account - {$user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
                 'status' => 'pending',
-                'notes' => $notes ?? 'Member contribution',
+                'notes' => "Contribution Debit: " . ($notes ?? 'Member contribution'),
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit Master Fund (Auto-credits User Fund)
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('CTB-C'),
+                'transaction_date' => $date,
+                'type' => 'contribution',
+                'target_account' => 'master_fund',
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'related_transaction_id' => $debit->id,
+                'status' => 'pending',
+                'notes' => "Contribution Credit: " . ($notes ?? 'Member contribution'),
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            return $transaction->fresh();
+            return $credit->fresh();
         });
     }
 
@@ -283,23 +315,38 @@ class Member extends Model
         return DB::transaction(function () use ($loan, $amount, $date): Transaction {
             $user = $this->user;
 
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('LNRPY'),
+            // 1. Debit User Bank
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LNP-D'),
                 'transaction_date' => $date,
-                'type' => 'loan_repayment',
-                'from_account' => "Member Bank Account - {$user->user_code}",
-                'to_account' => "Member Fund Account - {$user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
                 'reference' => $loan->loan_id,
                 'status' => 'pending',
-                'notes' => "Loan repayment for {$loan->loan_id}",
+                'notes' => "Loan Repayment Debit: {$loan->loan_id}",
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit Master Fund (Auto-credits User Fund + updates Loan)
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LNP-C'),
+                'transaction_date' => $date,
+                'type' => 'loan_repayment',
+                'target_account' => 'master_fund',
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'related_transaction_id' => $debit->id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => "Loan Repayment Credit: {$loan->loan_id}",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            return $transaction->fresh();
+            return $credit->fresh();
         });
     }
 
@@ -373,34 +420,61 @@ class Member extends Model
                 }
 
                 // Step 1 — credit master bank account (external import)
-                $extImportTx = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('EXT'),
+                $txExternal = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('EXT-E'),
+                    'transaction_date' => $txDate,
+                    'type' => 'import_deposit',
+                    // Target specific bank for tracking if we knew it? 
+                    // importFunds doesn't specify a bank account ID, so we use dummy or generic.
+                    'target_account' => "user_bank", 
+                    'amount' => $amount,
+                    'user_id' => $user->id,
+                    'status' => 'pending',
+                    'notes' => 'Bulk Import receipt to bank',
+                    'created_by' => auth()->id(),
+                ]);
+                $txExternal->process();
+
+                $txMaster = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('EXT-M'),
                     'transaction_date' => $txDate,
                     'type' => 'external_import',
-                    'from_account' => 'External Source',
-                    'to_account' => 'Master Bank Account',
+                    'target_account' => 'master_bank',
+                    'amount' => $amount,
+                    'related_transaction_id' => $txExternal->id,
+                    'status' => 'pending',
+                    'notes' => 'Bulk Import Master Bank Credit',
+                    'created_by' => auth()->id(),
+                ]);
+                $txMaster->process();
+
+                // Step 2 — contribution (paired)
+                $contribDebit = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('CTB-D'),
+                    'transaction_date' => $txDate,
+                    'type' => 'debit',
+                    'target_account' => 'user_bank',
                     'amount' => $amount,
                     'user_id' => $user->id,
                     'status' => 'pending',
-                    'notes' => 'Fund import – external receipt',
+                    'notes' => 'Fund import contribution - Bank Debit',
                     'created_by' => auth()->id(),
                 ]);
-                $extImportTx->process();
+                $contribDebit->process();
 
-                // Step 2 — debit member's bank, credit member's fund + master fund
-                $contribTx = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('CTB'),
+                $contribCredit = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('CTB-C'),
                     'transaction_date' => $txDate,
                     'type' => 'contribution',
-                    'from_account' => "Member Bank Account - {$user->user_code}",
-                    'to_account' => "Member Fund Account - {$user->user_code}",
+                    'target_account' => 'master_fund',
                     'amount' => $amount,
                     'user_id' => $user->id,
+                    'related_transaction_id' => $contribDebit->id,
                     'status' => 'pending',
-                    'notes' => 'Fund import – contribution',
+                    'notes' => 'Fund import contribution - Fund Credit',
                     'created_by' => auth()->id(),
                 ]);
-                $contribTx->process();
+                $contribCredit->process();
 
                 $results['imported']++;
             }
@@ -464,13 +538,15 @@ class Member extends Model
      */
     public function computeBankAccountBalanceFromTransactions(): float
     {
-        $credits = (float) $this->user->transactions()
-            ->whereIn('type', ['master_to_user_bank', 'external_import', 'allocation_from_parent', 'import_deposit'])
-            ->sum('amount');
-        $debits = (float) $this->user->transactions()
-            ->whereIn('type', ['contribution', 'allocation_to_dependant', 'loan_repayment'])
-            ->sum('amount');
-        return $credits - $debits;
+        $transactions = $this->user->transactions()
+            ->where('target_account', 'user_bank')
+            ->where('status', 'complete')
+            ->get();
+            
+        return $transactions->sum(function($tx) {
+            $isCredit = in_array($tx->type, ['credit', 'external_import', 'allocation_from_parent', 'import_deposit', 'loan_disbursement']);
+            return $isCredit ? (float)$tx->amount : -(float)$tx->amount;
+        });
     }
 
     /**
@@ -479,10 +555,16 @@ class Member extends Model
      */
     public function computeFundAccountBalanceFromTransactions(): float
     {
-        $credits = (float) $this->user->transactions()
-            ->whereIn('type', ['contribution', 'loan_repayment'])
-            ->sum('amount');
-        return $credits;
+        // Fund share is updated whenever master_fund is targeting a user, or direct user_fund.
+        $transactions = $this->user->transactions()
+            ->where(fn($q) => $q->where('target_account', 'master_fund')->orWhere('target_account', 'user_fund'))
+            ->where('status', 'complete')
+            ->get();
+
+        return $transactions->sum(function($tx) {
+            $isCredit = in_array($tx->type, ['contribution', 'loan_repayment', 'credit']);
+            return $isCredit ? (float)$tx->amount : -(float)$tx->amount;
+        });
     }
 
     /**
@@ -529,42 +611,34 @@ class Member extends Model
         $dependentUser = $dependent->user;
 
         DB::transaction(function () use ($dependent, $amount, $notes, $date, $parentUser, $dependentUser): void {
-            $txIdOut = Transaction::generateTransactionId('ALLOUT');
-            $txIdIn = Transaction::generateTransactionId('ALLOIN');
-
+            // Pair: Debit Parent Bank, Credit Dependent Bank
+            
             $outTx = Transaction::create([
-                'transaction_id' => $txIdOut,
+                'transaction_id' => Transaction::generateTransactionId('AL-OUT'),
                 'transaction_date' => $date,
-                'type' => 'allocation_to_dependant',
-                'from_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
-                'to_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
+                'type' => 'debit',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $this->user_id,
-                'reference' => null,
-                'status' => 'complete',
-                'notes' => $notes ?? 'Allocation to dependant: ' . ($dependent->user?->name ?? "Member #{$dependent->id}"),
+                'status' => 'pending',
+                'notes' => "Allocation OUT to dependant: " . ($dependentUser->name ?? "Member #{$dependent->id}"),
                 'created_by' => auth()->id(),
             ]);
-
-            $outTx->update(['allocation_pair_id' => $outTx->id]);
+            $outTx->process();
 
             $inTx = Transaction::create([
-                'transaction_id' => $txIdIn,
+                'transaction_id' => Transaction::generateTransactionId('AL-IN'),
                 'transaction_date' => $date,
                 'type' => 'allocation_from_parent',
-                'from_account' => $parentUser ? "Member Bank Account - {$parentUser->user_code}" : 'Member Bank Account',
-                'to_account' => $dependentUser ? "Member Bank Account - {$dependentUser->user_code}" : 'Member Bank Account',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $dependent->user_id,
-                'reference' => null,
-                'status' => 'complete',
-                'notes' => $notes ?? 'Allocation from parent: ' . ($this->user?->name ?? "Member #{$this->id}"),
+                'related_transaction_id' => $outTx->id,
+                'status' => 'pending',
+                'notes' => "Allocation IN from parent: " . ($parentUser->name ?? "Member #{$this->id}"),
                 'created_by' => auth()->id(),
-                'allocation_pair_id' => $outTx->id,
             ]);
-
-            $this->debitBankAccount($amount);
-            $dependent->creditBankAccount($amount);
+            $inTx->process();
         });
     }
 

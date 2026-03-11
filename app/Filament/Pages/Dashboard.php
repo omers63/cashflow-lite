@@ -2,12 +2,18 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Exception;
+use App\Models\Loan;
+use App\Models\MasterAccount;
+use App\Models\Member;
 use App\Models\Setting;
 use Filament\Pages\Dashboard as BaseDashboard;
 
 class Dashboard extends BaseDashboard
 {
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-home';
+
+    protected string $view = 'filament.pages.dashboard';
 
     public function getWidgets(): array
     {
@@ -26,15 +32,31 @@ class Dashboard extends BaseDashboard
             'recent_transactions'   => \App\Filament\Widgets\RecentTransactions::class,
         ];
 
-        $json = Setting::get('dashboard_widgets_admin');
+        $json    = Setting::get('dashboard_widgets_admin');
         $enabled = $json ? json_decode($json, true) : null;
 
-        // If no setting saved yet, show all widgets (defaults)
         if ($enabled === null) {
             return array_values($all);
         }
 
         return array_values(array_filter($all, fn (string $class, string $key) =>
             ($enabled[$key] ?? true), ARRAY_FILTER_USE_BOTH));
+    }
+
+    public function getSummary(): array
+    {
+        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        $activeLoans = Loan::active();
+
+        return [
+            'bank_balance'    => $masterBank?->balance ?? 0,
+            'fund_balance'    => $masterFund?->balance ?? 0,
+            'total_members'   => Member::count(),
+            'active_loans'    => $activeLoans->count(),
+            'loan_outstanding' => $activeLoans->sum('outstanding_balance'),
+            'open_exceptions' => Exception::open()->count(),
+            'overdue_exceptions' => Exception::overdue()->count(),
+        ];
     }
 }

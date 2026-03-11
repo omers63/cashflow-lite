@@ -12,6 +12,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -20,6 +21,12 @@ class TransactionsRelationManager extends RelationManager
     protected static ?string $title = 'Transactions';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-arrow-path';
+
+    #[On('refreshMasterAccountRecord')]
+    public function refreshTable(): void
+    {
+        $this->dispatch('$refresh');
+    }
 
     public function table(Table $table): Table
     {
@@ -47,16 +54,12 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
 
-                Tables\Columns\TextColumn::make('from_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->from_account),
-
-                Tables\Columns\TextColumn::make('to_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->to_account),
-
                 Tables\Columns\TextColumn::make('amount')
                     ->getStateUsing(function (Transaction $record): float {
+                        // For adjustments, the amount is already signed (negative = debit)
+                        if ($record->type === 'adjustment') {
+                            return (float) $record->amount;
+                        }
                         if ($this->getOwnerRecord()->account_type !== 'master_bank') {
                             return (float) $record->amount;
                         }
@@ -103,6 +106,18 @@ class TransactionsRelationManager extends RelationManager
                     ]),
             ])
             ->defaultSort('transaction_date', 'desc')
+            ->recordClasses(function ($record) {
+                // Adjustments use signed amount: negative = debit (red), positive = credit (green)
+                if ($record->type === 'adjustment') {
+                    return (float) $record->amount < 0
+                        ? 'bg-danger-50 dark:bg-danger-950'
+                        : 'bg-success-50 dark:bg-success-950';
+                }
+                $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
+                return in_array($record->type, $debitTypes, true)
+                    ? 'bg-danger-50 dark:bg-danger-950'
+                    : 'bg-success-50 dark:bg-success-950';
+            })
             ->filters([
                 Tables\Filters\SelectFilter::make('type')
                     ->label('Transaction Type')
@@ -152,8 +167,8 @@ class TransactionsRelationManager extends RelationManager
             ->recordActions([
                 Actions\ActionGroup::make([
                     Actions\Action::make('assign_user')
-                        ->label('Assign Member')
-                        ->tooltip('Assign Member')
+                        ->label('Post To Member')
+                        ->tooltip('Post To Member')
                         ->icon('heroicon-o-user-plus')
                     ->schema([
                         Forms\Components\Select::make('member_id')
@@ -229,6 +244,42 @@ class TransactionsRelationManager extends RelationManager
                         ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
                             && $record->type === 'external_import'
                             && (bool) $record->user_id),
+
+                    Actions\Action::make('post_to_member')
+                        ->label('Post To Member')
+                        ->tooltip('Post To Member')
+                        ->icon('heroicon-o-user-plus')
+                        ->schema([
+                            Forms\Components\Select::make('member_id')
+                                ->label('Member')
+                                ->options(
+                                    fn () => Member::with('user')
+                                        ->get()
+                                        ->mapWithKeys(fn (Member $m) => [
+                                            $m->id => $m->user
+                                                ? "{$m->user->name} ({$m->user->user_code})"
+                                                : "Member #{$m->id}",
+                                        ])
+                                )
+                                ->searchable()
+                                ->required(),
+                        ])
+                        ->action(function (Transaction $record, array $data): void {
+                            DB::transaction(function () use ($record, $data): void {
+                                $member = Member::find($data['member_id']);
+                                if ($member) {
+                                    $member->creditFundAccount(abs((float) $record->amount));
+                                    $record->update(['user_id' => $member->user_id]);
+                                }
+                            });
+
+                            \Filament\Notifications\Notification::make()
+                                ->title('Posted to member')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (Transaction $record): bool => ! $record->user_id
+                            && ! in_array($record->type, ['external_import', 'master_to_user_bank', 'loan_disbursement', 'contribution', 'loan_repayment'], true)),
                 ])
                     ->label('')
                     ->icon('heroicon-o-ellipsis-horizontal'),
@@ -237,7 +288,7 @@ class TransactionsRelationManager extends RelationManager
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('assign_member')
-                        ->label('Assign Member')
+                        ->label('Post To Member')
                         ->icon('heroicon-o-user-plus')
                         ->form([
                             Forms\Components\Select::make('member_id')
@@ -304,8 +355,14 @@ class TransactionsRelationManager extends RelationManager
         $query = Transaction::query();
 
         return match ($owner->account_type) {
-            'master_bank' => $query->whereIn('type', ['external_import', 'master_to_user_bank', 'loan_disbursement']),
-            'master_fund' => $query->whereIn('type', ['contribution', 'loan_repayment']),
+            'master_bank' => $query->where(function ($q) {
+                $q->whereIn('type', ['external_import', 'master_to_user_bank', 'loan_disbursement'])
+                  ->orWhere(fn ($q2) => $q2->where('type', 'adjustment')->where('from_account', 'master_bank'));
+            }),
+            'master_fund' => $query->where(function ($q) {
+                $q->whereIn('type', ['contribution', 'loan_repayment'])
+                  ->orWhere(fn ($q2) => $q2->where('type', 'adjustment')->where('from_account', 'master_fund'));
+            }),
             default => $query->whereRaw('0 = 1'),
         };
     }

@@ -16,7 +16,8 @@ use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components;
-use Filament\Schemas\Components\Utilities\Get;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 
 class TransactionResource extends Resource
 {
@@ -49,17 +50,45 @@ class TransactionResource extends Resource
                                 'loan_repayment' => 'Loan Repayment',
                                 'loan_disbursement' => 'Loan Disbursement',
                                 'adjustment' => 'Adjustment',
+                                'credit' => 'Credit (Add Funds)',
+                                'debit' => 'Debit (Deduct Funds)',
                             ])
                             ->required()
                             ->reactive(),
 
-                        Forms\Components\TextInput::make('from_account')
+                        Forms\Components\Select::make('target_account')
+                            ->label('Target Account')
+                            ->options([
+                                'master_bank' => 'Master Bank',
+                                'master_fund' => 'Master Fund',
+                                'user_bank' => 'Member Bank',
+                                'user_fund' => 'Member Fund',
+                                'external_bank' => 'External Bank',
+                            ])
                             ->required()
-                            ->maxLength(255),
+                            ->live()
+                            ->afterStateUpdated(fn ($set) => $set('external_bank_account_id', null)),
 
-                        Forms\Components\TextInput::make('to_account')
-                            ->required()
-                            ->maxLength(255),
+                        Forms\Components\Select::make('external_bank_account_id')
+                            ->label('External Bank Account')
+                            ->options(\App\Models\ExternalBankAccount::pluck('bank_name', 'id'))
+                            ->searchable()
+                            ->preload()
+                            ->required(fn($get) => $get('target_account') === 'external_bank')
+                            ->visible(fn($get) => $get('target_account') === 'external_bank')
+                            ->afterStateUpdated(function ($state, $set) {
+                                if ($state) {
+                                    $set('target_account', "external_bank:{$state}");
+                                }
+                            }),
+
+                        Forms\Components\Select::make('user_id')
+                            ->label('User')
+                            ->relationship('user', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->required(fn ($get) => in_array($get('target_account'), ['user_bank', 'user_fund']))
+                            ->visible(fn ($get) => in_array($get('target_account'), ['user_bank', 'user_fund'])),
 
                         Forms\Components\TextInput::make('amount')
                             ->numeric()
@@ -67,18 +96,6 @@ class TransactionResource extends Resource
                             ->required()
                             ->step(0.01)
                             ->minValue(0.01),
-
-                        Forms\Components\Select::make('user_id')
-                            ->label('User')
-                            ->relationship('user', 'name')
-                            ->searchable()
-                            ->preload()
-                            ->required(fn(Get $get) => in_array($get('type'), [
-                                'master_to_user_bank',
-                                'contribution',
-                                'loan_repayment',
-                                'loan_disbursement'
-                            ])),
 
                         Forms\Components\TextInput::make('reference')
                             ->maxLength(255)
@@ -98,7 +115,8 @@ class TransactionResource extends Resource
                             ->rows(3)
                             ->columnSpanFull(),
                     ])
-                    ->columns(2),
+                    ->columns(2)
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -119,25 +137,36 @@ class TransactionResource extends Resource
                     ->badge()
                     ->colors([
                         'primary' => 'external_import',
-                        'success' => 'contribution',
+                        'success' => ['contribution', 'credit'],
                         'warning' => 'loan_repayment',
-                        'danger' => 'loan_disbursement',
+                        'danger' => ['loan_disbursement', 'debit'],
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
                         'gray' => ['allocation_to_dependant', 'allocation_from_parent'],
                     ])
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
 
-                Tables\Columns\TextColumn::make('from_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->from_account),
-
-                Tables\Columns\TextColumn::make('to_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->to_account),
+                Tables\Columns\TextColumn::make('target_account')
+                    ->searchable()
+                    ->sortable()
+                    ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
 
                 Tables\Columns\TextColumn::make('amount')
+                    ->state(function (Transaction $record) {
+                        $isCredit = $record->isCreditType($record->type);
+                        if ($record->type === 'adjustment') {
+                            $isCredit = $record->amount >= 0;
+                        }
+                        return $isCredit ? $record->amount : -$record->amount;
+                    })
                     ->money('USD')
+                    ->color(function (Transaction $record) {
+                        $isCredit = $record->isCreditType($record->type);
+                        if ($record->type === 'adjustment') {
+                            $isCredit = $record->amount >= 0;
+                        }
+                        return $isCredit ? 'success' : 'danger';
+                    })
                     ->sortable()
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
@@ -165,6 +194,20 @@ class TransactionResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('transaction_date', 'desc')
+            ->recordClasses(function (Transaction $record) {
+                $isCredit = $record->isCreditType($record->type);
+                if ($record->type === 'adjustment') {
+                    $isCredit = $record->amount >= 0;
+                }
+
+                if ($isCredit === true) {
+                    return 'bg-success-50 dark:bg-success-950';
+                }
+                if ($isCredit === false) {
+                    return 'bg-danger-50 dark:bg-danger-950';
+                }
+                return null;
+            })
             ->filters([
                 Tables\Filters\SelectFilter::make('type')
                     ->options([
@@ -174,6 +217,8 @@ class TransactionResource extends Resource
                         'loan_repayment' => 'Loan Repayment',
                         'loan_disbursement' => 'Loan Disbursement',
                         'adjustment' => 'Adjustment',
+                        'credit' => 'Credit (Add Funds)',
+                        'debit' => 'Debit (Deduct Funds)',
                     ])
                     ->multiple(),
 
@@ -191,15 +236,13 @@ class TransactionResource extends Resource
                     ->searchable()
                     ->preload(),
 
-                Tables\Filters\SelectFilter::make('from_account')
-                    ->label('From account')
-                    ->options(fn () => Transaction::query()->distinct()->orderBy('from_account')->pluck('from_account', 'from_account')->toArray())
-                    ->searchable(),
-
-                Tables\Filters\SelectFilter::make('to_account')
-                    ->label('To account')
-                    ->options(fn () => Transaction::query()->distinct()->orderBy('to_account')->pluck('to_account', 'to_account')->toArray())
-                    ->searchable(),
+                Tables\Filters\SelectFilter::make('target_account')
+                    ->options([
+                        'master_bank' => 'Master Bank',
+                        'master_fund' => 'Master Fund',
+                        'user_bank' => 'Member Bank',
+                        'user_fund' => 'Member Fund',
+                    ]),
 
                 Tables\Filters\Filter::make('transaction_date')
                     ->schema([
@@ -323,9 +366,9 @@ class TransactionResource extends Resource
                             ->badge()
                             ->color(fn($state) => match ($state) {
                                 'external_import' => 'primary',
-                                'contribution' => 'success',
+                                'contribution', 'credit' => 'success',
                                 'loan_repayment' => 'warning',
-                                'loan_disbursement' => 'danger',
+                                'loan_disbursement', 'debit' => 'danger',
                                 'master_to_user_bank' => 'info',
                                 'adjustment' => 'secondary',
                                 'allocation_to_dependant' => 'gray',
@@ -333,17 +376,7 @@ class TransactionResource extends Resource
                                 default => 'secondary',
                             })
                             ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
-                        Infolists\Components\TextEntry::make('status')
-                            ->badge()
-                            ->color(fn($state) => match ($state) {
-                                'pending' => 'warning',
-                                'complete' => 'success',
-                                'failed' => 'danger',
-                                'reversed' => 'secondary',
-                                default => 'secondary',
-                            }),
-                        Infolists\Components\TextEntry::make('from_account'),
-                        Infolists\Components\TextEntry::make('to_account'),
+                        Infolists\Components\TextEntry::make('target_account'),
                         Infolists\Components\TextEntry::make('amount')
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('reference'),

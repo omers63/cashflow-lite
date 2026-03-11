@@ -291,8 +291,17 @@ class ViewMember extends ViewRecord
                             if (!$tier) {
                                 return $amount > 0 ? 'Amount outside tier range ($1,000–$300,000)' : null;
                             }
-                            return 'Installment: $' . number_format($tier['installment'])
-                                . ' | Maturity balance: $' . number_format($tier['maturity_balance']);
+                            $percentage = (float) ($tier['maturity_percentage'] ?? 16);
+                            return 'Installment: $' . number_format($tier['installment_amount'])
+                                . ' | Target (' . $percentage . '%): $' . number_format($tier['maturity_balance']);
+                        })
+                        ->rule(function () use ($member) {
+                            return function (string $attribute, $value, \Closure $fail) use ($member) {
+                                $error = $member->checkTierAllocation((float) $value);
+                                if ($error) {
+                                    $fail($error);
+                                }
+                            };
                         });
 
                     $fields[] = Forms\Components\TextInput::make('interest_rate')
@@ -334,9 +343,9 @@ class ViewMember extends ViewRecord
                         'origination_date' => now(),
                         'original_amount' => $amount,
                         'interest_rate' => (float) ($data['interest_rate'] ?? 0),
-                        'term_months' => $tier ? (int) ceil($amount / $tier['installment']) : 12,
-                        'monthly_payment' => $tier['installment'] ?? $amount,
-                        'installment_amount' => $tier['installment'] ?? null,
+                        'term_months' => $tier ? (int) ceil($amount / $tier['installment_amount']) : 12,
+                        'monthly_payment' => $tier['installment_amount'] ?? $amount,
+                        'installment_amount' => $tier['installment_amount'] ?? null,
                         'maturity_fund_balance' => $tier['maturity_balance'] ?? null,
                         'total_paid' => 0,
                         'outstanding_balance' => $amount,

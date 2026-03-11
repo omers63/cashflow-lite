@@ -54,7 +54,7 @@ class LoanService
     }
 
     /**
-     * Approve and disburse a loan
+     * Approve and disburse a loan (Paired: Debit Master Fund, Credit User Bank)
      */
     public function approveLoan(Loan $loan): Transaction
     {
@@ -68,39 +68,47 @@ class LoanService
             throw new \Exception("Insufficient master fund balance");
         }
 
-        DB::beginTransaction();
-        try {
-            // Approve the loan
+        return DB::transaction(function () use ($loan) {
+            // Approve the loan object record
             $loan->approve(auth()->id());
 
-            // Create disbursement transaction
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('LND'),
+            // 1. Debit Master Fund
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LND-D'),
                 'transaction_date' => now(),
-                'type' => 'loan_disbursement',
-                'from_account' => 'Master Fund Account',
-                'to_account' => "User Bank Account - {$loan->user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'master_fund',
                 'amount' => $loan->original_amount,
-                'user_id' => $loan->user_id,
+                'user_id' => $loan->user_id, // Associated with user share too
                 'reference' => $loan->loan_id,
                 'status' => 'pending',
-                'notes' => "Loan disbursement: {$loan->loan_id}",
+                'notes' => "Loan Disbursement Debit from Fund: {$loan->loan_id}",
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit User Bank
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LND-C'),
+                'transaction_date' => now(),
+                'type' => 'loan_disbursement',
+                'target_account' => 'user_bank',
+                'amount' => $loan->original_amount,
+                'user_id' => $loan->user_id,
+                'related_transaction_id' => $debit->id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => "Loan Disbursement Credit to User Bank: {$loan->loan_id}",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            DB::commit();
-            return $transaction->fresh();
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
-        }
+            return $credit->fresh();
+        });
     }
 
     /**
-     * Process a loan payment
+     * Process a loan payment (Paired: Debit User Bank, Credit Master Fund)
      */
     public function processPayment(Loan $loan, float $amount, ?string $notes = null): Transaction
     {
@@ -112,31 +120,40 @@ class LoanService
             throw new \Exception("Insufficient bank account balance");
         }
 
-        DB::beginTransaction();
-        try {
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('LNP'),
+        return DB::transaction(function () use ($loan, $amount, $notes) {
+            // 1. Debit User Bank
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LNP-D'),
                 'transaction_date' => now(),
-                'type' => 'loan_repayment',
-                'from_account' => "User Bank Account - {$loan->user->user_code}",
-                'to_account' => "User Fund Account - {$loan->user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $loan->user_id,
                 'reference' => $loan->loan_id,
                 'status' => 'pending',
-                'notes' => $notes ?? "Loan payment: {$loan->loan_id}",
+                'notes' => "Loan Payment Debit from Bank: {$loan->loan_id}",
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit Master Fund
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LNP-C'),
+                'transaction_date' => now(),
+                'type' => 'loan_repayment',
+                'target_account' => 'master_fund',
+                'amount' => $amount,
+                'user_id' => $loan->user_id,
+                'related_transaction_id' => $debit->id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => $notes ?? "Loan payment Credit to Fund: {$loan->loan_id}",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            DB::commit();
-            return $transaction->fresh();
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
-        }
+            return $credit->fresh();
+        });
     }
 
     /**

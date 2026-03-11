@@ -55,11 +55,15 @@ class Settings extends Page
             $memberWidgets[$key] = $memberSaved[$key] ?? $def['default'] ?? true;
         }
 
+        $loanTiersJson = Setting::get('loan_tiers');
+        $loanTiers = $loanTiersJson ? json_decode($loanTiersJson, true) : config('settings.loan_tiers', []);
+
         $this->form->fill([
             'parameters' => $parameterState,
             'templates' => $templateState,
             'admin_widgets' => $adminWidgets,
             'member_widgets' => $memberWidgets,
+            'loan_tiers' => $loanTiers,
         ]);
     }
 
@@ -144,6 +148,51 @@ class Settings extends Page
                                             ->schema($memberWidgetFields),
                                     ]),
                             ]),
+
+                        Components\Tabs\Tab::make('Loan Tiers')
+                            ->icon('heroicon-o-presentation-chart-line')
+                            ->schema([
+                                Forms\Components\Repeater::make('loan_tiers')
+                                    ->label('Defined Loan Tiers')
+                                    ->helperText('Define different tiers for loan eligibility based on member contributions.')
+                                    ->schema([
+                                        Forms\Components\TextInput::make('name')
+                                            ->label('Tier Name')
+                                            ->required(),
+                                        Forms\Components\TextInput::make('min_amount')
+                                            ->label('Min Amount ($)')
+                                            ->numeric()
+                                            ->required(),
+                                        Forms\Components\TextInput::make('max_amount')
+                                            ->label('Max Amount ($)')
+                                            ->numeric()
+                                            ->required(),
+                                        Forms\Components\TextInput::make('installment_amount')
+                                            ->label('Installment ($)')
+                                            ->numeric()
+                                            ->required(),
+                                        Forms\Components\TextInput::make('maturity_percentage')
+                                            ->label('Target (%)')
+                                            ->numeric()
+                                            ->default(16)
+                                            ->minValue(0)
+                                            ->maxValue(100)
+                                            ->required(),
+                                        Forms\Components\TextInput::make('allocation_percentage')
+                                            ->label('Allocation (%)')
+                                            ->numeric()
+                                            ->default(10)
+                                            ->minValue(0)
+                                            ->maxValue(100)
+                                            ->required(),
+                                    ])
+                                    ->columns(6)
+                                    ->itemLabel(fn (array $state): ?string => $state['name'] ?? null)
+                                    ->collapsible()
+                                    ->reorderable(false)
+                                    ->defaultItems(1)
+                                    ->columnSpanFull(),
+                            ]),
                     ])
                     ->columnSpanFull(),
             ])
@@ -160,9 +209,12 @@ class Settings extends Page
         Setting::set('dashboard_widgets_admin', json_encode($data['admin_widgets'] ?? []));
         Setting::set('dashboard_widgets_member', json_encode($data['member_widgets'] ?? []));
 
+        // Save loan tiers as JSON
+        Setting::set('loan_tiers', json_encode($data['loan_tiers'] ?? []));
+
         Notification::make()
             ->title('Settings saved')
-            ->body('Parameters, templates, and dashboard widget preferences have been updated.')
+            ->body('Settings and loan tiers have been updated.')
             ->success()
             ->send();
     }

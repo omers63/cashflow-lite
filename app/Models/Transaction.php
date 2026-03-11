@@ -16,8 +16,7 @@ class Transaction extends Model
         'transaction_id',
         'transaction_date',
         'type',
-        'from_account',
-        'to_account',
+        'target_account',
         'amount',
         'user_id',
         'reference',
@@ -27,6 +26,7 @@ class Transaction extends Model
         'approved_by',
         'approved_at',
         'allocation_pair_id',
+        'related_transaction_id',
     ];
 
     protected $casts = [
@@ -79,124 +79,8 @@ class Transaction extends Model
     public function reverseBalanceEffect(): void
     {
         DB::transaction(function () {
-            switch ($this->type) {
-                case 'external_import':
-                    $this->reverseExternalImport();
-                    break;
-                case 'master_to_user_bank':
-                    $this->reverseMasterToUserBank();
-                    break;
-                case 'contribution':
-                    $this->reverseContribution();
-                    break;
-                case 'loan_repayment':
-                    $this->reverseLoanRepayment();
-                    break;
-                case 'loan_disbursement':
-                    $this->reverseLoanDisbursement();
-                    break;
-                case 'adjustment':
-                    // No balance effect to reverse
-                    break;
-                case 'allocation_to_dependant':
-                    $this->reverseAllocationToDependant();
-                    break;
-                case 'allocation_from_parent':
-                    $this->reverseAllocationFromParent();
-                    break;
-                case 'import_deposit':
-                    $this->reverseImportDeposit();
-                    break;
-            }
+            $this->adjustBalance(false);
         });
-    }
-
-    private function reverseAllocationToDependant(): void
-    {
-        $parentMember = $this->user?->member;
-        if ($parentMember) {
-            $parentMember->creditBankAccount((float) $this->amount);
-        }
-        $paired = static::where('allocation_pair_id', $this->id)->where('id', '!=', $this->id)->first();
-        if ($paired && $paired->user?->member) {
-            $paired->user->member->debitBankAccount((float) $paired->amount);
-            static::$skipReverseAllocationPairIds[$paired->id] = true;
-            $paired->delete();
-        }
-    }
-
-    private function reverseAllocationFromParent(): void
-    {
-        $dependentMember = $this->user?->member;
-        if ($dependentMember) {
-            $dependentMember->debitBankAccount((float) $this->amount);
-        }
-        $parentTx = $this->allocation_pair_id ? static::find($this->allocation_pair_id) : null;
-        if ($parentTx && $parentTx->user?->member) {
-            $parentTx->user->member->creditBankAccount((float) $parentTx->amount);
-            static::$skipReverseAllocationPairIds[$parentTx->id] = true;
-            $parentTx->delete();
-        }
-    }
-
-    private function reverseExternalImport(): void
-    {
-        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
-        if ($masterBank) {
-            $masterBank->decrement('balance', $this->amount);
-        }
-        // Reverse assignment: when this external_import was assigned to a user, we credited their bank
-        if ($this->user_id && $this->user) {
-            $this->user->debitBankAccount((float) $this->amount);
-        }
-    }
-
-    private function reverseMasterToUserBank(): void
-    {
-        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
-        if ($masterBank) {
-            $masterBank->increment('balance', $this->amount);
-        }
-        if ($this->user) {
-            $this->user->debitBankAccount($this->amount);
-        }
-    }
-
-    private function reverseContribution(): void
-    {
-        if ($this->user) {
-            $this->user->creditBankAccount($this->amount);
-            $this->user->debitFundAccount($this->amount);
-        }
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->decrement('balance', $this->amount);
-        }
-    }
-
-    private function reverseLoanRepayment(): void
-    {
-        if ($this->user) {
-            $this->user->creditBankAccount($this->amount);
-            $this->user->debitFundAccount($this->amount);
-        }
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->decrement('balance', $this->amount);
-        }
-        // Note: Loan outstanding_balance is not auto-reversed; reconcile manually if needed.
-    }
-
-    private function reverseLoanDisbursement(): void
-    {
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->increment('balance', $this->amount);
-        }
-
-        if ($this->user) {
-            $this->user->updateOutstandingLoans();
-        }
     }
 
     // Business Logic
@@ -224,35 +108,9 @@ class Transaction extends Model
         }
 
         DB::transaction(function () {
-            switch ($this->type) {
-                case 'external_import':
-                    $this->processExternalImport();
-                    break;
-                case 'master_to_user_bank':
-                    $this->processMasterToUserBank();
-                    break;
-                case 'contribution':
-                    $this->processContribution();
-                    break;
-                case 'loan_repayment':
-                    $this->processLoanRepayment();
-                    break;
-                case 'loan_disbursement':
-                    $this->processLoanDisbursement();
-                    break;
-                case 'adjustment':
-                    $this->processAdjustment();
-                    break;
-                case 'import_deposit':
-                    $this->processImportDeposit();
-                    break;
-            }
-
+            $this->adjustBalance(true);
+            $this->handleBusinessEffects(true);
             $this->update(['status' => 'complete']);
-
-            activity()
-                ->performedOn($this)
-                ->log('Transaction processed successfully');
         });
     }
 
@@ -266,13 +124,15 @@ class Transaction extends Model
         }
 
         DB::transaction(function () use ($reason) {
-            // Create reversal transaction
+            // Create reversal transaction: 
+            // If original was credit, reversal is debit. If original was debit, reversal is credit.
+            $reversalType = ($this->type === 'debit' || !$this->isCreditType($this->type)) ? 'credit' : 'debit';
+            
             $reversal = static::create([
                 'transaction_id' => static::generateTransactionId('REV'),
                 'transaction_date' => now(),
-                'type' => $this->type,
-                'from_account' => $this->to_account, // Swap
-                'to_account' => $this->from_account, // Swap
+                'type' => $reversalType,
+                'target_account' => $this->target_account,
                 'amount' => $this->amount,
                 'user_id' => $this->user_id,
                 'reference' => "REVERSAL: {$this->transaction_id}",
@@ -283,124 +143,124 @@ class Transaction extends Model
 
             $reversal->process();
 
+            // Reverse business effects
+            $this->handleBusinessEffects(false);
+
             // Mark original as reversed
             $this->update(['status' => 'reversed']);
-
-            activity()
-                ->performedOn($this)
-                ->withProperties(['reason' => $reason, 'reversal_id' => $reversal->id])
-                ->log('Transaction reversed');
         });
 
         return $this;
     }
 
-    // Private processing methods
     /**
-     * External import: amount imported to master bank as debit (balance increases).
-     * When assigned to a user (contribution/repayment), their bank is credited.
+     * Increment/Decrement the target account balance based on transaction type.
+     * @param bool $isProcessing True if we are applying the transaction, False if we are reversing it.
      */
-    private function processExternalImport(): void
+    public function adjustBalance(bool $isProcessing): void
     {
-        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
-        if (!$masterBank) {
-            throw new \RuntimeException('Master bank account not found.');
-        }
-        $masterBank->increment('balance', $this->amount);
-
-        if ($this->user_id && $this->user?->member) {
-            $this->user->creditBankAccount($this->amount);
-        }
-    }
-
-    private function processMasterToUserBank(): void
-    {
-        $masterBank = MasterAccount::where('account_type', 'master_bank')->first();
+        $amount = (float) $this->amount;
+        $isCredit = $this->isCreditType($this->type);
         
-        if ($masterBank->balance < $this->amount) {
-            throw new \Exception("Insufficient master bank balance");
+        if ($this->type === 'adjustment') {
+            $isCredit = $amount >= 0;
         }
 
-        $masterBank->decrement('balance', $this->amount);
-        $this->user->creditBankAccount($this->amount);
+        // Apply logic: Credit increases balance, Debit decreases balance.
+        // If reversing, flip the logic.
+        $shouldIncrease = $isProcessing ? $isCredit : !$isCredit;
+        $adjustment = $shouldIncrease ? abs($amount) : -abs($amount);
+
+        $this->executeAdjustment($this->target_account, $adjustment);
     }
 
     /**
-     * Contribution: user bank debited, user fund credited, master fund credited.
+     * Helper to determine if a type is fundamentally a credit (increase) or debit (decrease)
      */
-    private function processContribution(): void
+    private function isCreditType(string $type): bool
     {
-        $this->user->debitBankAccount($this->amount);
-        $this->user->creditFundAccount($this->amount);
-
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->increment('balance', $this->amount);
-        }
+        return in_array($type, ['credit', 'external_import', 'contribution', 'loan_repayment', 'import_deposit']);
     }
 
-    /**
-     * Loan repayment: user bank debited, user fund credited, master fund credited, loan credited.
-     */
-    private function processLoanRepayment(): void
+    private function executeAdjustment(?string $target, float $amount): void
     {
-        $this->user->debitBankAccount($this->amount);
-        $this->user->creditFundAccount($this->amount);
+        if (!$target) return;
 
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if ($masterFund) {
-            $masterFund->increment('balance', $this->amount);
-        }
-
-        if ($this->reference) {
-            $loan = Loan::where('loan_id', $this->reference)->first();
-            if ($loan) {
-                $loan->processPayment($this);
+        if ($target === 'master_bank' || $target === 'master_fund') {
+            $master = MasterAccount::where('account_type', $target)->first();
+            if ($master) {
+                $master->increment('balance', $amount);
+                
+                // If targeting master_fund and have a user, update their fund share record too
+                if ($target === 'master_fund' && $this->user) {
+                    $amount > 0 ? $this->user->creditFundAccount(abs($amount)) : $this->user->debitFundAccount(abs($amount));
+                }
+                
+                // NOTE: We don't automatically update user_bank when master_bank changes, 
+                // because that's usually a separate transaction in the pair.
+            }
+        } elseif ($target === 'user_bank' || $target === 'user_fund') {
+            if ($this->user) {
+                if ($target === 'user_bank') {
+                    $amount > 0 ? $this->user->creditBankAccount(abs($amount)) : $this->user->debitBankAccount(abs($amount));
+                } else {
+                    // This handles direct user_fund adjustments (though usually we go through master_fund)
+                    $amount > 0 ? $this->user->creditFundAccount(abs($amount)) : $this->user->debitFundAccount(abs($amount));
+                    
+                    // IF we update user_fund directly, we MUST also update master_fund to keep them in sync
+                    $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+                    if ($masterFund) {
+                        $masterFund->increment('balance', $amount);
+                    }
+                }
+            }
+        } elseif (str_starts_with($target, 'external_bank:')) {
+            $bankId = explode(':', $target)[1] ?? null;
+            if ($bankId) {
+                $extBank = ExternalBankAccount::find($bankId);
+                if ($extBank) {
+                    $extBank->increment('current_balance', $amount);
+                }
             }
         }
     }
 
     /**
-     * Loan disbursement: master fund is debited; loan is assigned to user via reference.
-     * Disbursement is handled off-system (cash/external transfer), so user bank is not credited.
+     * Handle secondary business logic effects (e.g., updating loan balances)
      */
-    private function processLoanDisbursement(): void
+    private function handleBusinessEffects(bool $isProcessing): void
     {
-        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-        if (!$masterFund || (float) $masterFund->balance < (float) $this->amount) {
-            throw new \Exception("Insufficient master fund balance for loan disbursement");
+        $amount = (float) $this->amount;
+        $adjustment = $isProcessing ? $amount : -$amount;
+
+        // 1. Loan Effects
+        if (in_array($this->type, ['loan_disbursement', 'loan_repayment']) && $this->reference) {
+            $loan = Loan::where('loan_id', $this->reference)->first();
+            if ($loan) {
+                if ($this->type === 'loan_disbursement') {
+                    // Disbursement increases outstanding balance
+                    $loan->increment('outstanding_balance', $adjustment);
+                    if ($isProcessing) {
+                        $loan->update(['status' => 'active', 'origination_date' => $this->transaction_date ?: now()]);
+                    }
+                } else {
+                    // Repayment decreases outstanding balance
+                    $loan->decrement('outstanding_balance', $adjustment);
+                    $loan->increment('total_paid', $adjustment);
+                    
+                    if ($loan->outstanding_balance <= 0) {
+                        $loan->update(['status' => 'paid_off']);
+                    }
+                }
+            }
         }
 
-        $masterFund->decrement('balance', $this->amount);
-
-        if ($this->user) {
-            $this->user->updateOutstandingLoans();
+        // 2. Membership Fee / User Activation
+        if ($this->type === 'membership_fee' && $this->user && $isProcessing) {
+            if ($this->user->status === 'pending') {
+                $this->user->activate();
+            }
         }
-    }
-
-    private function processAdjustment(): void
-    {
-        // Adjustments are handled manually with proper documentation
-        activity()
-            ->performedOn($this)
-            ->withProperties([
-                'from' => $this->from_account,
-                'to' => $this->to_account,
-                'amount' => $this->amount,
-            ])
-            ->log('Manual adjustment processed');
-    }
-
-    /** Credit the member's bank account from an external fund import (no master account effect). */
-    private function processImportDeposit(): void
-    {
-        $this->user->creditBankAccount($this->amount);
-    }
-
-    /** Reverse an import_deposit by debiting the member's bank account. */
-    private function reverseImportDeposit(): void
-    {
-        $this->user->debitBankAccount($this->amount);
     }
 
     // Scopes

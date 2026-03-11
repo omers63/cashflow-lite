@@ -10,6 +10,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
 
 class ImportsRelationManager extends RelationManager
 {
@@ -18,6 +19,12 @@ class ImportsRelationManager extends RelationManager
     protected static ?string $title = 'Transactions';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-arrow-path';
+
+    #[On('refreshExternalBankAccountRecord')]
+    public function refreshTable(): void
+    {
+        $this->dispatch('$refresh');
+    }
 
     public function table(Table $table): Table
     {
@@ -41,6 +48,7 @@ class ImportsRelationManager extends RelationManager
                     ->label('Amount')
                     ->money('USD')
                     ->sortable()
+                    ->color(fn ($record) => $record->amount >= 0 ? 'success' : 'danger')
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
                             ->money('USD')
@@ -56,6 +64,10 @@ class ImportsRelationManager extends RelationManager
                     ->boolean(),
             ])
             ->defaultSort('transaction_date', 'desc')
+            ->recordClasses(fn ($record) => $record->amount >= 0
+                ? 'bg-success-50 dark:bg-success-950'
+                : 'bg-danger-50 dark:bg-danger-950'
+            )
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_duplicate')
                     ->label('Duplicates'),

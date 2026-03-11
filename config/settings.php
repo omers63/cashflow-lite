@@ -107,4 +107,92 @@ return [
             'recent_activity'      => ['label' => 'Recent Activity',           'default' => true],
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Loan Tiers (Definition of allowability based on member activity).
+    |--------------------------------------------------------------------------
+    */
+    'loan_tiers' => [
+        [
+            'name' => 'Tier 1',
+            'min_amount' => 1000,
+            'max_amount' => 30000,
+            'installment_amount' => 1000,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 2',
+            'min_amount' => 31000,
+            'max_amount' => 60000,
+            'installment_amount' => 1500,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 3',
+            'min_amount' => 61000,
+            'max_amount' => 90000,
+            'installment_amount' => 2000,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 4',
+            'min_amount' => 91000,
+            'max_amount' => 120000,
+            'installment_amount' => 2500,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 5',
+            'min_amount' => 121000,
+            'max_amount' => 150000,
+            'installment_amount' => 3000,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 6',
+            'min_amount' => 151000,
+            'max_amount' => 180000,
+            'installment_amount' => 3500,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 7',
+            'min_amount' => 181000,
+            'max_amount' => 210000,
+            'installment_amount' => 4000,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 8',
+            'min_amount' => 211000,
+            'max_amount' => 240000,
+            'installment_amount' => 4500,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 9',
+            'min_amount' => 241000,
+            'max_amount' => 270000,
+            'installment_amount' => 5000,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+        [
+            'name' => 'Tier 10',
+            'min_amount' => 271000,
+            'max_amount' => 300000,
+            'installment_amount' => 5500,
+            'maturity_percentage' => 16,
+            'allocation_percentage' => 10,
+        ],
+    ],
 ];

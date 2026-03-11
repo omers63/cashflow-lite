@@ -145,10 +145,8 @@ class Loan extends Model
         ]);
 
         // Update loan
-        $newTotalPaid = (float) ($this->total_paid + $paymentAmount);
         $newBalance = (float) max(0, $this->outstanding_balance - $principal);
-        
-        $this->total_paid = $newTotalPaid;
+        $this->total_paid = (float) ($this->total_paid + $paymentAmount);
         $this->outstanding_balance = $newBalance;
 
         // Check if paid off
@@ -157,9 +155,10 @@ class Loan extends Model
             $this->outstanding_balance = 0.0;
             $this->next_payment_date = null;
         } else {
-            // Calculate next payment date
-            $nextDate = Carbon::parse($this->next_payment_date)->addMonth();
-            $this->next_payment_date = $nextDate;
+            // Only move date if we processed at least a full installment
+            if ($paymentAmount >= ($this->installment_amount * 0.9)) {
+                $this->next_payment_date = $this->next_payment_date ? Carbon::parse($this->next_payment_date)->addMonthNoOverflow() : null;
+            }
         }
 
         $this->save();
@@ -303,27 +302,12 @@ class Loan extends Model
             'approved_by' => $approverId,
             'approved_at' => now(),
             'next_payment_date' => $firstRepaymentDate,
-            'installment_amount' => $tier['installment'] ?? $this->monthly_payment,
+            'installment_amount' => $tier['installment_amount'] ?? $this->monthly_payment,
             'maturity_fund_balance' => $tier['maturity_balance'] ?? 0,
-            'monthly_payment' => $tier['installment'] ?? $this->monthly_payment,
+            'monthly_payment' => $tier['installment_amount'] ?? $this->monthly_payment,
         ]);
 
-        // Create disbursement transaction (debits master fund, credits member's bank)
-        $user = $this->user;
-        $transaction = Transaction::create([
-            'transaction_id' => Transaction::generateTransactionId('LNDSB'),
-            'transaction_date' => now(),
-            'type' => 'loan_disbursement',
-            'from_account' => "Member Fund Account - {$user->user_code}",
-            'to_account' => 'Loan Disbursement',
-            'amount' => $this->original_amount,
-            'user_id' => $this->user_id,
-            'reference' => $this->loan_id,
-            'status' => 'pending',
-            'notes' => "Loan disbursement for {$this->loan_id}",
-            'created_by' => $approverId,
-        ]);
-        $transaction->process();
+        // Transaction creation removed - handled by LoanService to ensure paired entries.
 
         activity()
             ->performedOn($this)

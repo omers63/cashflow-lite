@@ -14,9 +14,8 @@ class ListLoans extends ListRecords
     {
         return [
             Actions\CreateAction::make()
-                ->label('')
-                ->tooltip('Create')
-                ->link(),
+                ->label('Create Loan')
+                ->icon('heroicon-o-plus'),
         ];
     }
 }

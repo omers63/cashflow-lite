@@ -2,3 +2,286 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADMIN PANEL — Global UI Polish
+   Targeting Filament v3 component classes for a modern, premium look.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Page Header ─────────────────────────────────────────────────────────── */
+.fi-header-heading {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+}
+
+.fi-breadcrumb-item {
+    font-size: 0.8rem !important;
+}
+
+/* ─── Section Cards ───────────────────────────────────────────────────────── */
+.fi-section {
+    border-radius: 1rem !important;
+    overflow: hidden !important;
+    box-shadow: 0 1px 4px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.04) !important;
+    transition: box-shadow 0.2s ease !important;
+}
+
+.fi-section:hover {
+    box-shadow: 0 4px 12px 0 rgb(0 0 0 / 0.07), 0 2px 4px -1px rgb(0 0 0 / 0.04) !important;
+}
+
+.fi-section-header {
+    border-bottom: 1px solid rgb(var(--color-gray-100)) !important;
+    padding: 1rem 1.25rem !important;
+}
+
+.dark .fi-section-header {
+    border-bottom-color: rgb(var(--color-gray-800)) !important;
+}
+
+.fi-section-header-heading {
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    color: rgb(var(--color-gray-800)) !important;
+}
+
+.dark .fi-section-header-heading {
+    color: rgb(var(--color-gray-100)) !important;
+}
+
+/* ─── Tables ──────────────────────────────────────────────────────────────── */
+.fi-ta {
+    border-radius: 1rem !important;
+    overflow: hidden !important;
+    box-shadow: 0 1px 4px 0 rgb(0 0 0 / 0.05) !important;
+}
+
+.fi-ta-header-cell {
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
+    color: rgb(var(--color-gray-500)) !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    background-color: rgb(var(--color-gray-50)) !important;
+}
+
+.dark .fi-ta-header-cell {
+    background-color: rgb(var(--color-gray-900)) !important;
+    color: rgb(var(--color-gray-400)) !important;
+}
+
+.fi-ta-row {
+    transition: background-color 0.12s ease !important;
+}
+
+.fi-ta-row:hover td {
+    background-color: rgb(var(--color-gray-50)) !important;
+}
+
+.dark .fi-ta-row:hover td {
+    background-color: rgb(var(--color-gray-800) / 0.5) !important;
+}
+
+.fi-ta-cell {
+    padding-top: 0.6rem !important;
+    padding-bottom: 0.6rem !important;
+    font-size: 0.875rem !important;
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────────── */
+.fi-btn {
+    border-radius: 0.625rem !important;
+    font-weight: 600 !important;
+    transition: transform 0.1s ease, box-shadow 0.15s ease !important;
+}
+
+.fi-btn-color-primary:not(.fi-btn-outlined) {
+    background: linear-gradient(135deg,
+        rgb(var(--color-primary-500)),
+        rgb(var(--color-primary-700))) !important;
+    border: none !important;
+    box-shadow: 0 2px 8px rgb(var(--color-primary-600) / 0.35) !important;
+}
+
+.fi-btn-color-primary:not(.fi-btn-outlined):hover {
+    box-shadow: 0 4px 14px rgb(var(--color-primary-600) / 0.5) !important;
+    transform: translateY(-1px) !important;
+}
+
+.fi-btn-color-success:not(.fi-btn-outlined) {
+    background: linear-gradient(135deg,
+        rgb(var(--color-success-400)),
+        rgb(var(--color-success-600))) !important;
+    border: none !important;
+    box-shadow: 0 2px 8px rgb(var(--color-success-600) / 0.3) !important;
+}
+
+.fi-btn-color-success:not(.fi-btn-outlined):hover {
+    box-shadow: 0 4px 14px rgb(var(--color-success-600) / 0.45) !important;
+    transform: translateY(-1px) !important;
+}
+
+.fi-btn-color-danger:not(.fi-btn-outlined) {
+    background: linear-gradient(135deg,
+        rgb(var(--color-danger-400)),
+        rgb(var(--color-danger-600))) !important;
+    border: none !important;
+    box-shadow: 0 2px 8px rgb(var(--color-danger-600) / 0.3) !important;
+}
+
+/* ─── Badges ──────────────────────────────────────────────────────────────── */
+.fi-badge {
+    border-radius: 999px !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.03em !important;
+    padding: 0.2rem 0.65rem !important;
+}
+
+/* ─── Infolist Entries ────────────────────────────────────────────────────── */
+.fi-in-entry-label {
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    color: rgb(var(--color-gray-400)) !important;
+    margin-bottom: 0.15rem !important;
+}
+
+.fi-in-text-entry-content {
+    font-size: 0.95rem !important;
+    font-weight: 500 !important;
+    color: rgb(var(--color-gray-800)) !important;
+}
+
+.dark .fi-in-text-entry-content {
+    color: rgb(var(--color-gray-100)) !important;
+}
+
+/* ─── Stats Overview Widget ───────────────────────────────────────────────── */
+.fi-wi-stats-overview-stat {
+    border-radius: 1rem !important;
+    box-shadow: 0 1px 4px 0 rgb(0 0 0 / 0.05) !important;
+    transition: box-shadow 0.2s ease, transform 0.15s ease !important;
+    overflow: hidden !important;
+}
+
+.fi-wi-stats-overview-stat:hover {
+    box-shadow: 0 6px 16px 0 rgb(0 0 0 / 0.1) !important;
+    transform: translateY(-2px) !important;
+}
+
+.fi-wi-stats-overview-stat-value {
+    font-size: 1.65rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em !important;
+}
+
+.fi-wi-stats-overview-stat-label {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
+
+/* Make description icons clearly visible — override Filament's color-based white */
+.fi-wi-stats-overview-stat-description svg,
+.fi-wi-stats-overview-stat-description-icon svg {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    opacity: 1 !important;
+    flex-shrink: 0 !important;
+    color: rgb(75 85 99) !important; /* gray-600 */
+}
+
+/* Force stroke/fill colors to override Tailwind's text-* classes */
+.fi-wi-stats-overview-stat-description svg path,
+.fi-wi-stats-overview-stat-description-icon svg path {
+    stroke: rgb(75 85 99) !important;
+    fill: rgb(75 85 99) !important;
+}
+
+.dark .fi-wi-stats-overview-stat-description svg path,
+.dark .fi-wi-stats-overview-stat-description-icon svg path {
+    stroke: rgb(209 213 219) !important;
+    fill: rgb(209 213 219) !important;
+}
+
+.fi-wi-stats-overview-stat-description {
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.4rem !important;
+}
+
+.fi-wi-stats-overview-stat-value {
+    font-size: 1.65rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.03em !important;
+}
+
+.fi-wi-stats-overview-stat-label {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
+
+/* ─── Form Fields ─────────────────────────────────────────────────────────── */
+.fi-input {
+    border-radius: 0.625rem !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.fi-input:focus {
+    box-shadow: 0 0 0 3px rgb(var(--color-primary-500) / 0.2) !important;
+}
+
+.fi-select-input {
+    border-radius: 0.625rem !important;
+}
+
+/* ─── Modal ───────────────────────────────────────────────────────────────── */
+.fi-modal-window {
+    border-radius: 1.25rem !important;
+}
+
+/* ─── Tabs ────────────────────────────────────────────────────────────────── */
+.fi-tabs-tab {
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    border-radius: 0.5rem !important;
+    transition: background-color 0.15s ease, color 0.15s ease !important;
+}
+
+/* ─── Widget Cards ────────────────────────────────────────────────────────── */
+.fi-wi {
+    border-radius: 1rem !important;
+}
+
+/* ─── Pagination ──────────────────────────────────────────────────────────── */
+.fi-pagination-item-btn {
+    border-radius: 0.5rem !important;
+    font-weight: 600 !important;
+}
+
+/* ─── Action Group ────────────────────────────────────────────────────────── */
+.fi-dropdown-panel {
+    border-radius: 0.75rem !important;
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.12) !important;
+}
+
+.fi-dropdown-list-item-label {
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+}
+
+/* ─── Notifications ───────────────────────────────────────────────────────── */
+.fi-no-notification {
+    border-radius: 1rem !important;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12) !important;
+}

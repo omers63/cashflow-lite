@@ -32,8 +32,14 @@ class AdminPanelProvider extends PanelProvider
             ->brandName('Cashflow System')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->colors([
-                'primary' => Color::Blue,
+                'primary'   => Color::Violet,
+                'gray'      => Color::Slate,
+                'info'      => Color::Sky,
+                'success'   => Color::Emerald,
+                'warning'   => Color::Amber,
+                'danger'    => Color::Rose,
             ])
+            ->font('Inter', 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap')
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([

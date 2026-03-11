@@ -62,7 +62,8 @@ class MasterAccountResource extends Resource
                             ->native(false)
                             ->helperText('Date as of which balances are recorded.'),
                     ])
-                    ->columns(2),
+                    ->columns(2)
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -148,7 +149,8 @@ class MasterAccountResource extends Resource
                             ->label('Last Updated')
                             ->dateTime(),
                     ])
-                    ->columns(2),
+                    ->columns(2)
+                    ->columnSpanFull(),
 
                 Components\Section::make('Projected balance (current month)')
                     ->description('If contributions and loan repayments for this month are run and all pending loans in the queue are disbursed. See Monthly Collections for period selector and loan queue.')
@@ -174,13 +176,13 @@ class MasterAccountResource extends Resource
                         Infolists\Components\TextEntry::make('monthly_collections_link')
                             ->label('')
                             ->state(fn (MasterAccount $record): string => $record->account_type === 'master_fund' ? 'View Monthly Collections' : '')
-                            ->formatStateUsing(fn (string $s): string => $s)
                             ->url(fn (MasterAccount $record): ?string => $record->account_type === 'master_fund' ? url('/admin/monthly-collections') : null)
                             ->visible(fn (MasterAccount $record): bool => $record->account_type === 'master_fund')
                             ->openUrlInNewTab(false),
                     ])
                     ->visible(fn (MasterAccount $record): bool => $record->account_type === 'master_fund')
-                    ->collapsible(),
+                    ->collapsible()
+                    ->columnSpanFull(),
             ]);
     }
 

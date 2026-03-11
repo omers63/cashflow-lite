@@ -14,10 +14,8 @@ class ListTransactions extends ListRecords
     {
         return [
             Actions\CreateAction::make()
-                ->label('')
                 ->icon('heroicon-o-plus-circle')
-                ->tooltip('Create')
-                ->link(),
+                ->tooltip('Create Transaction'),
         ];
     }
 }

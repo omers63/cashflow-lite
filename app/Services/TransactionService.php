@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 class TransactionService
 {
     /**
-     * Create and process a contribution transaction
+     * Create and process a contribution transaction (Paired: Debit User Bank, Credit Master Fund)
      */
     public function createContribution(User $user, float $amount, ?string $notes = null): Transaction
     {
@@ -18,34 +18,42 @@ class TransactionService
             throw new \Exception("Insufficient bank account balance");
         }
 
-        DB::beginTransaction();
-        try {
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('CTB'),
+        return DB::transaction(function () use ($user, $amount, $notes) {
+            // 1. Debit User Bank
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('CTB-D'),
                 'transaction_date' => now(),
-                'type' => 'contribution',
-                'from_account' => "User Bank Account - {$user->user_code}",
-                'to_account' => "User Fund Account - {$user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
                 'status' => 'pending',
-                'notes' => $notes,
+                'notes' => $notes ? "DEBIT: {$notes}" : "Contribution Debit from Bank",
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit Master Fund (This also credits user's fund share via Model logic)
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('CTB-C'),
+                'transaction_date' => now(),
+                'type' => 'contribution', // Keep type for reporting, logic handles it as credit
+                'target_account' => 'master_fund',
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'related_transaction_id' => $debit->id,
+                'status' => 'pending',
+                'notes' => $notes ? "CREDIT: {$notes}" : "Contribution Credit to Fund",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            DB::commit();
-            return $transaction->fresh();
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
-        }
+            return $credit->fresh();
+        });
     }
 
     /**
-     * Create distribution from Master Bank to User Banks
+     * Create distribution from Master Bank to User Banks (Paired: Debit Master Bank, Credit User Bank)
      */
     public function createDistribution(User $user, float $amount, ?string $notes = null): Transaction
     {
@@ -55,30 +63,37 @@ class TransactionService
             throw new \Exception("Insufficient master bank balance");
         }
 
-        DB::beginTransaction();
-        try {
-            $transaction = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('DST'),
+        return DB::transaction(function () use ($user, $amount, $notes) {
+            // 1. Debit Master Bank
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('DST-D'),
                 'transaction_date' => now(),
-                'type' => 'master_to_user_bank',
-                'from_account' => 'Master Bank Account',
-                'to_account' => "User Bank Account - {$user->user_code}",
+                'type' => 'debit',
+                'target_account' => 'master_bank',
                 'amount' => $amount,
-                'user_id' => $user->id,
                 'status' => 'pending',
-                'notes' => $notes,
+                'notes' => $notes ? "DEBIT: {$notes}" : "Distribution Debit from Master Bank",
                 'created_by' => auth()->id(),
             ]);
+            $debit->process();
 
-            $transaction->process();
+            // 2. Credit User Bank
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('DST-C'),
+                'transaction_date' => now(),
+                'type' => 'master_to_user_bank',
+                'target_account' => 'user_bank',
+                'amount' => $amount,
+                'user_id' => $user->id,
+                'related_transaction_id' => $debit->id,
+                'status' => 'pending',
+                'notes' => $notes ? "CREDIT: {$notes}" : "Distribution Credit to User Bank",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
 
-            DB::commit();
-            return $transaction->fresh();
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
-        }
+            return $credit->fresh();
+        });
     }
 
     /**

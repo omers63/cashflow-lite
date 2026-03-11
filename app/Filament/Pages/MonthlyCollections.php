@@ -15,7 +15,7 @@ use Illuminate\Contracts\Support\Htmlable;
 class MonthlyCollections extends Page
 {
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calendar-days';
-    protected static ?string $navigationLabel = 'Monthly Collections';
+    protected static ?string $navigationLabel = 'Collections';
     protected static ?string $title = 'Monthly Collections & Allocations';
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
     protected static ?int $navigationSort = 2;

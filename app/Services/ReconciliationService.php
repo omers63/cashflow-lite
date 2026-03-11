@@ -144,9 +144,18 @@ class ReconciliationService
     protected function checkM1_MasterBankVsRecomputed(): void
     {
         $masterBank = MasterAccount::getMasterBank();
-        $credits = (float) Transaction::where('type', 'external_import')->sum('amount');
-        $debits = (float) Transaction::where('type', 'master_to_user_bank')->sum('amount');
-        $recomputed = $credits - $debits;
+        $credits = (float) Transaction::where('target_account', 'master_bank')
+            ->where(function($q) {
+                $q->whereIn('type', ['external_import', 'credit', 'import_deposit'])
+                  ->orWhere('type', 'adjustment')->where('amount', '>', 0);
+            })->sum('amount');
+        $debits = (float) Transaction::where('target_account', 'master_bank')
+            ->where(function($q) {
+                $q->where('type', 'debit')
+                  ->orWhere('type', 'adjustment')->where('amount', '<', 0);
+            })->sum('amount');
+            
+        $recomputed = $credits - abs($debits);
         $stored = (float) $masterBank->balance;
         $variance = $stored - $recomputed;
         $status = abs($variance) < $this->tolerance ? 'PASS' : 'FAIL';
@@ -195,9 +204,18 @@ class ReconciliationService
     protected function checkM3_MasterFundVsRecomputed(): void
     {
         $masterFund = MasterAccount::getMasterFund();
-        $credits = (float) Transaction::whereIn('type', ['contribution', 'loan_repayment'])->sum('amount');
-        $debits = (float) Transaction::where('type', 'loan_disbursement')->sum('amount');
-        $recomputed = $credits - $debits;
+        $credits = (float) Transaction::where('target_account', 'master_fund')
+            ->where(function($q) {
+                $q->whereIn('type', ['contribution', 'loan_repayment', 'credit'])
+                  ->orWhere('type', 'adjustment')->where('amount', '>', 0);
+            })->sum('amount');
+        $debits = (float) Transaction::where('target_account', 'master_fund')
+            ->where(function($q) {
+                $q->whereIn('type', ['loan_disbursement', 'debit'])
+                  ->orWhere('type', 'adjustment')->where('amount', '<', 0);
+            })->sum('amount');
+            
+        $recomputed = $credits - abs($debits);
         $stored = (float) $masterFund->balance;
         $variance = $stored - $recomputed;
         $status = abs($variance) < $this->tolerance ? 'PASS' : 'FAIL';
@@ -526,8 +544,7 @@ class ReconciliationService
             $data['external_bank_account_id']
         );
 
-        DB::beginTransaction();
-        try {
+        return DB::transaction(function () use ($data, $isDuplicate) {
             $import = ExternalBankImport::create([
                 ...$data,
                 'is_duplicate' => $isDuplicate,
@@ -537,31 +554,40 @@ class ReconciliationService
             ]);
 
             if (!$isDuplicate) {
-                $transaction = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('EXT'),
+                // 1. Credit External Bank Tracking
+                $txExternal = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('EXT-E'),
                     'transaction_date' => $data['transaction_date'],
-                    'type' => 'external_import',
-                    'from_account' => $data['bank_name'] ?? 'External Bank',
-                    'to_account' => 'Master Bank Account',
+                    'type' => 'import_deposit',
+                    'target_account' => "external_bank:{$data['external_bank_account_id']}",
                     'amount' => $data['amount'],
                     'reference' => $data['external_ref_id'],
-                    'status' => 'complete',
+                    'status' => 'pending',
                     'created_by' => auth()->id(),
                 ]);
+                $txExternal->process();
 
-                $transaction->process();
+                // 2. Credit Master Bank (Paired movement to record it in system totals)
+                $txMaster = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('EXT-M'),
+                    'transaction_date' => $data['transaction_date'],
+                    'type' => 'external_import',
+                    'target_account' => 'master_bank',
+                    'amount' => $data['amount'],
+                    'related_transaction_id' => $txExternal->id,
+                    'reference' => $data['external_ref_id'],
+                    'status' => 'pending',
+                    'created_by' => auth()->id(),
+                ]);
+                $txMaster->process();
 
                 $import->update([
                     'imported_to_master' => true,
-                    'transaction_id' => $transaction->id,
+                    'transaction_id' => $txMaster->id,
                 ]);
             }
 
-            DB::commit();
             return $import;
-        } catch (\Exception $e) {
-            DB::rollBack();
-            throw $e;
-        }
+        });
     }
 }
