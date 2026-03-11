@@ -8,32 +8,44 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             @php $masterBank = $this->masterBankSummary; @endphp
             @if ($masterBank)
-                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterBank['id']]) }}"
-                   class="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-primary-500 dark:hover:border-primary-500 transition-colors">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Master Bank Account</p>
-                            <p class="text-2xl font-bold">${{ number_format($masterBank['balance'], 2) }}</p>
-                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterBank['balance_date'] }}</p>
+                <div class="fi-wi-stats-overview-stat relative rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 hover:ring-primary-500 dark:hover:ring-primary-500 transition-colors">
+                    <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterBank['id']]) }}" class="absolute inset-0 z-10 rounded-xl"></a>
+                    <div class="grid gap-y-2">
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Master Bank Account</span>
                         </div>
-                        <x-filament::icon icon="heroicon-m-banknotes" class="h-10 w-10 text-primary-500" />
+                        <div class="text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">
+                            ${{ number_format($masterBank['balance'], 2) }}
+                        </div>
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-sm text-gray-500 dark:text-gray-400">As of {{ $masterBank['balance_date'] }}</span>
+                        </div>
                     </div>
-                </a>
+                    <div class="absolute top-6 right-6 text-primary-500">
+                        <x-filament::icon icon="heroicon-o-banknotes" class="h-8 w-8" />
+                    </div>
+                </div>
             @endif
 
             @php $masterFund = $this->masterFundSummary; @endphp
             @if ($masterFund)
-                <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterFund['id']]) }}"
-                   class="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-success-500 dark:hover:border-success-500 transition-colors">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Master Fund Account</p>
-                            <p class="text-2xl font-bold">${{ number_format($masterFund['balance'], 2) }}</p>
-                            <p class="text-xs text-gray-500 mt-1">As of {{ $masterFund['balance_date'] }}</p>
+                <div class="fi-wi-stats-overview-stat relative rounded-xl bg-white p-6 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 hover:ring-success-500 dark:hover:ring-success-500 transition-colors">
+                    <a href="{{ \App\Filament\Resources\MasterAccountResource::getUrl('edit', ['record' => $masterFund['id']]) }}" class="absolute inset-0 z-10 rounded-xl"></a>
+                    <div class="grid gap-y-2">
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Master Fund Account</span>
                         </div>
-                        <x-filament::icon icon="heroicon-m-wallet" class="h-10 w-10 text-success-500" />
+                        <div class="text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">
+                            ${{ number_format($masterFund['balance'], 2) }}
+                        </div>
+                        <div class="flex items-center gap-x-2">
+                            <span class="text-sm text-gray-500 dark:text-gray-400">As of {{ $masterFund['balance_date'] }}</span>
+                        </div>
                     </div>
-                </a>
+                    <div class="absolute top-6 right-6 text-success-500">
+                        <x-filament::icon icon="heroicon-o-wallet" class="h-8 w-8" />
+                    </div>
+                </div>
             @endif
         </div>
     </x-filament::section>

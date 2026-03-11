@@ -38,7 +38,7 @@
             <x-filament::section class="!p-4">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-danger-500/10 text-danger-600 dark:text-danger-400">
-                        <x-heroicon-o-banknotes class="w-6 h-6" />
+                        <x-filament::icon icon="heroicon-o-banknotes" class="w-6 h-6" />
                     </div>
                     <div>
                         <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Unrealized collections</p>
@@ -50,7 +50,7 @@
             <x-filament::section class="!p-4">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-warning-500/10 text-warning-600 dark:text-warning-400">
-                        <x-heroicon-o-user-group class="w-6 h-6" />
+                        <x-filament::icon icon="heroicon-o-user-group" class="w-6 h-6" />
                     </div>
                     <div>
                         <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Unallocated dependants</p>
@@ -62,7 +62,7 @@
             <x-filament::section class="!p-4">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600 dark:text-primary-400">
-                        <x-heroicon-o-calendar-days class="w-6 h-6" />
+                        <x-filament::icon icon="heroicon-o-calendar-days" class="w-6 h-6" />
                     </div>
                     <div>
                         <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Period</p>
@@ -205,7 +205,7 @@
             @php $unrealized = $this->getUnrealized(); @endphp
             @if(empty($unrealized))
                 <div class="flex items-center gap-3 py-6 text-success-600 dark:text-success-400">
-                    <x-heroicon-o-check-circle class="w-8 h-8" />
+                    <x-filament::icon icon="heroicon-o-check-circle" class="w-8 h-8" />
                     <span class="font-medium">All members are up to date for this period.</span>
                 </div>
             @else
@@ -257,7 +257,7 @@
             @php $unallocated = $this->getUnallocated(); @endphp
             @if(empty($unallocated))
                 <div class="flex items-center gap-3 py-6 text-success-600 dark:text-success-400">
-                    <x-heroicon-o-check-circle class="w-8 h-8" />
+                    <x-filament::icon icon="heroicon-o-check-circle" class="w-8 h-8" />
                     <span class="font-medium">All dependants have been allocated for this period.</span>
                 </div>
             @else

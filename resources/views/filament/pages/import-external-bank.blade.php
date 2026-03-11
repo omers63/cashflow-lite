@@ -15,11 +15,11 @@
                     <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Import Preview</h3>
                     <div class="flex gap-3 text-xs">
                         <span class="inline-flex items-center gap-1 text-green-700 dark:text-green-400 font-medium">
-                            <x-heroicon-m-check-circle class="w-4 h-4"/>
+                            <x-filament::icon icon="heroicon-m-check-circle" class="w-4 h-4"/>
                             {{ $newCount }} new
                         </span>
                         <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-                            <x-heroicon-m-exclamation-triangle class="w-4 h-4"/>
+                            <x-filament::icon icon="heroicon-m-exclamation-triangle" class="w-4 h-4"/>
                             {{ $duplicateCount }} duplicate
                         </span>
                     </div>
@@ -43,11 +43,11 @@
                                 <td class="px-4 py-2">
                                     @if ($row['is_duplicate'])
                                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                                            <x-heroicon-m-exclamation-circle class="w-3 h-3"/> Duplicate
+                                            <x-filament::icon icon="heroicon-m-exclamation-circle" class="w-3 h-3"/> Duplicate
                                         </span>
                                     @else
                                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
-                                            <x-heroicon-m-check-circle class="w-3 h-3"/> New
+                                            <x-filament::icon icon="heroicon-m-check-circle" class="w-3 h-3"/> New
                                         </span>
                                     @endif
                                 </td>
