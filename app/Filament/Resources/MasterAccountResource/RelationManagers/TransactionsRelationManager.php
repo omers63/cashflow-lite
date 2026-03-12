@@ -42,6 +42,11 @@ class TransactionsRelationManager extends RelationManager
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('target_account')
+                    ->badge()
+                    ->color('info')
+                    ->formatStateUsing(fn(string $state) => str_replace('_', ' ', ucfirst($state))),
+
                 Tables\Columns\TextColumn::make('type')
                     ->badge()
                     ->colors([
@@ -51,30 +56,21 @@ class TransactionsRelationManager extends RelationManager
                         'warning' => 'loan_repayment',
                         'danger' => 'loan_disbursement',
                         'secondary' => 'adjustment',
+                        'gray' => ['debit', 'credit'],
                     ])
                     ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->getStateUsing(function (Transaction $record): float {
-                        // For adjustments, the amount is already signed (negative = debit)
-                        if ($record->type === 'adjustment') {
-                            return (float) $record->amount;
-                        }
-                        if ($this->getOwnerRecord()->account_type !== 'master_bank') {
-                            return (float) $record->amount;
-                        }
-                        // Debits from master bank show as negative
-                        $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
-                        return in_array($record->type, $debitTypes, true)
-                            ? -(float) $record->amount
-                            : (float) $record->amount;
+                         $amount = (float) $record->amount;
+                         return $record->isCredit() ? $amount : -$amount;
                     })
                     ->formatStateUsing(function ($state): string {
-                        return $state >= 0
-                            ? '$' . number_format($state, 2)
-                            : '-$' . number_format(abs($state), 2);
+                        return (float)$state >= 0
+                            ? '$' . number_format((float)$state, 2)
+                            : '-$' . number_format(abs((float)$state), 2);
                     })
-                    ->color(fn ($state): ?string => $state < 0 ? 'danger' : null)
+                    ->color(fn ($state): ?string => $state < 0 ? 'danger' : 'success')
                     ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
@@ -82,10 +78,10 @@ class TransactionsRelationManager extends RelationManager
                             ->query(fn ($q) => $q)
                             ->using(function (string $attribute, $query) {
                                 $records = $query->get();
-                                $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
-                                return $records->sum(function ($row) use ($debitTypes) {
+                                return $records->sum(function ($row) {
                                     $amount = (float) $row->amount;
-                                    return in_array($row->type, $debitTypes, true) ? -$amount : $amount;
+                                    $isCredit = ($row->debit_or_credit ?? 'credit') === 'credit';
+                                    return $isCredit ? $amount : -$amount;
                                 });
                             })
                             ->formatStateUsing(fn ($state): string => ($state >= 0 ? '' : '-') . '$' . number_format(abs((float) $state), 2)),
@@ -107,16 +103,9 @@ class TransactionsRelationManager extends RelationManager
             ])
             ->defaultSort('transaction_date', 'desc')
             ->recordClasses(function ($record) {
-                // Adjustments use signed amount: negative = debit (red), positive = credit (green)
-                if ($record->type === 'adjustment') {
-                    return (float) $record->amount < 0
-                        ? 'bg-danger-50 dark:bg-danger-950'
-                        : 'bg-success-50 dark:bg-success-950';
-                }
-                $debitTypes = ['master_to_user_bank', 'loan_disbursement'];
-                return in_array($record->type, $debitTypes, true)
-                    ? 'bg-danger-50 dark:bg-danger-950'
-                    : 'bg-success-50 dark:bg-success-950';
+                return $record->isCredit()
+                    ? 'bg-success-50 dark:bg-success-950'
+                    : 'bg-danger-50 dark:bg-danger-950';
             })
             ->filters([
                 Tables\Filters\SelectFilter::make('type')
@@ -140,15 +129,15 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->multiple(),
 
-                Tables\Filters\SelectFilter::make('from_account')
-                    ->label('From account')
-                    ->options(fn () => Transaction::query()->distinct()->orderBy('from_account')->pluck('from_account', 'from_account')->toArray())
-                    ->searchable(),
-
-                Tables\Filters\SelectFilter::make('to_account')
-                    ->label('To account')
-                    ->options(fn () => Transaction::query()->distinct()->orderBy('to_account')->pluck('to_account', 'to_account')->toArray())
-                    ->searchable(),
+                Tables\Filters\SelectFilter::make('target_account')
+                    ->options([
+                        'master_bank' => 'Master Bank',
+                        'master_fund' => 'Master Fund',
+                        'user_bank' => 'User Bank',
+                        'user_fund' => 'User Fund',
+                        'external_bank' => 'External Bank',
+                    ])
+                    ->multiple(),
 
                 Tables\Filters\Filter::make('transaction_date')
                     ->label('Transaction Date')
@@ -355,14 +344,8 @@ class TransactionsRelationManager extends RelationManager
         $query = Transaction::query();
 
         return match ($owner->account_type) {
-            'master_bank' => $query->where(function ($q) {
-                $q->whereIn('type', ['external_import', 'master_to_user_bank', 'loan_disbursement'])
-                  ->orWhere(fn ($q2) => $q2->where('type', 'adjustment')->where('from_account', 'master_bank'));
-            }),
-            'master_fund' => $query->where(function ($q) {
-                $q->whereIn('type', ['contribution', 'loan_repayment'])
-                  ->orWhere(fn ($q2) => $q2->where('type', 'adjustment')->where('from_account', 'master_fund'));
-            }),
+            'master_bank' => $query->where('target_account', 'master_bank'),
+            'master_fund' => $query->where('target_account', 'master_fund'),
             default => $query->whereRaw('0 = 1'),
         };
     }

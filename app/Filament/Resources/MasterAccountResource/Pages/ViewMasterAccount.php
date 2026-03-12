@@ -44,14 +44,6 @@ class ViewMasterAccount extends ViewRecord
                         ->required()
                         ->default(now()),
 
-                    Forms\Components\TextInput::make('from_account')
-                        ->label('From Account')
-                        ->default(fn () => 'Manual Entry'),
-
-                    Forms\Components\TextInput::make('to_account')
-                        ->label('To Account')
-                        ->default(fn () => 'Manual Entry'),
-
                     Forms\Components\TextInput::make('reference')
                         ->label('Reference')
                         ->maxLength(255),
@@ -70,8 +62,8 @@ class ViewMasterAccount extends ViewRecord
                         'transaction_id'   => Transaction::generateTransactionId('ADJ'),
                         'transaction_date' => $data['transaction_date'],
                         'type'             => 'adjustment',
-                        'from_account'     => $account->account_type, // stored for balance reversal on delete
-                        'to_account'       => $data['to_account'] ?? 'Manual Entry',
+                        'debit_or_credit'  => $isDebit ? 'debit' : 'credit',
+                        'target_account'   => $account->account_type,
                         'amount'           => $signedAmount,
                         'reference'        => $data['reference'] ?? null,
                         'status'           => 'complete',

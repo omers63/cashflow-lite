@@ -44,6 +44,13 @@ class TransactionsRelationManager extends RelationManager
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('target_account')
+                    ->searchable()
+                    ->sortable()
+                    ->badge()
+                    ->color('info')
+                    ->formatStateUsing(fn(string $state) => str_replace('_', ' ', ucfirst($state))),
+
                 Tables\Columns\TextColumn::make('type')
                     ->badge()
                     ->colors([
@@ -53,31 +60,21 @@ class TransactionsRelationManager extends RelationManager
                         'danger' => 'loan_disbursement',
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
-                        'gray' => ['allocation_to_dependant', 'allocation_from_parent'],
+                        'gray' => ['allocation_to_dependant', 'allocation_from_parent', 'debit', 'credit'],
                     ])
                     ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
-
-                Tables\Columns\TextColumn::make('from_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->from_account),
-
-                Tables\Columns\TextColumn::make('to_account')
-                    ->limit(20)
-                    ->tooltip(fn($record) => $record->to_account),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Amount')
                     ->getStateUsing(function (Transaction $record) {
                         $amount = (float) $record->amount;
-                        // On the member pages, show contributions as positive amounts.
-                        // Only allocation_to_dependant is rendered as a negative (debit).
-                        $debitTypes = ['allocation_to_dependant'];
-                        return in_array($record->type, $debitTypes, true) ? -$amount : $amount;
+                        // Debit = Negative, Credit = Positive
+                        return $record->isCredit() ? $amount : -$amount;
                     })
                     ->formatStateUsing(fn($state) => $state >= 0
-                        ? '$' . number_format($state, 2)
-                        : '-$' . number_format(abs($state), 2))
-                    ->color(fn($state) => $state < 0 ? 'danger' : null)
+                        ? '$' . number_format((float)$state, 2)
+                        : '-$' . number_format(abs((float)$state), 2))
+                    ->color(fn($state) => $state < 0 ? 'danger' : 'success')
                     ->sortable(query: fn($query, string $direction) => $query->orderBy('amount', $direction))
                     ->summarize([
                         Tables\Columns\Summarizers\Sum::make()
@@ -99,13 +96,6 @@ class TransactionsRelationManager extends RelationManager
                                         return in_array($type, $debitTypes, true) ? -$amount : $amount;
                                     });
                                 };
-
-                                // If a "To Account (exact)" filter is applied, net = sum of filtered rows.
-                                $filtersState = $livewire->getTableFiltersForm()->getState();
-                                $toAccountFilterValues = $filtersState['to_account_exact']['values'] ?? [];
-                                if (!empty($toAccountFilterValues)) {
-                                    return (float) $sumFilteredRows();
-                                }
 
                                 // "All" tab: net = member's bank account balance.
                                 $activeTab = $livewire->activeTab ?? 'all';
@@ -155,41 +145,15 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->multiple(),
 
-                Tables\Filters\SelectFilter::make('from_account_exact')
-                    ->label('From Account (exact)')
-                    ->options(
-                        fn() => Transaction::query()
-                            ->whereNotNull('from_account')
-                            ->distinct()
-                            ->orderBy('from_account')
-                            ->pluck('from_account', 'from_account')
-                            ->toArray()
-                    )
-                    ->multiple()
-                    ->query(function ($query, array $data) {
-                        $values = $data['values'] ?? [];
-
-                        return $query
-                            ->when($values, fn($q, $v) => $q->whereIn('from_account', $v));
-                    }),
-
-                Tables\Filters\SelectFilter::make('to_account_exact')
-                    ->label('To Account (exact)')
-                    ->options(
-                        fn() => Transaction::query()
-                            ->whereNotNull('to_account')
-                            ->distinct()
-                            ->orderBy('to_account')
-                            ->pluck('to_account', 'to_account')
-                            ->toArray()
-                    )
-                    ->multiple()
-                    ->query(function ($query, array $data) {
-                        $values = $data['values'] ?? [];
-
-                        return $query
-                            ->when($values, fn($q, $v) => $q->whereIn('to_account', $v));
-                    }),
+                Tables\Filters\SelectFilter::make('target_account')
+                    ->options([
+                        'master_bank' => 'Master Bank',
+                        'master_fund' => 'Master Fund',
+                        'user_bank' => 'User Bank',
+                        'user_fund' => 'User Fund',
+                        'external_bank' => 'External Bank',
+                    ])
+                    ->multiple(),
 
                 Tables\Filters\Filter::make('transaction_date')
                     ->label('Transaction Date')

@@ -127,7 +127,11 @@ class ViewExternalBankAccount extends ViewRecord
                         ->body('New balance: $' . number_format($balance, 2))
                         ->success()
                         ->send();
+                    // Ensure both this page and the related imports table update immediately.
+                    // 1) Re-render this Livewire component.
                     $this->dispatch('$refresh');
+                    // 2) Notify the relation manager to refresh its table and owner record.
+                    $this->dispatch('refreshExternalBankAccountRecord', accountId: $account->getKey());
                 }),
 
             Actions\EditAction::make()

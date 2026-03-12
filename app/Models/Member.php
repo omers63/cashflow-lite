@@ -258,6 +258,7 @@ class Member extends Model
                 'transaction_id' => Transaction::generateTransactionId('CTB-D'),
                 'transaction_date' => $date,
                 'type' => 'debit',
+                'debit_or_credit' => 'debit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -272,6 +273,7 @@ class Member extends Model
                 'transaction_id' => Transaction::generateTransactionId('CTB-C'),
                 'transaction_date' => $date,
                 'type' => 'contribution',
+                'debit_or_credit' => 'credit',
                 'target_account' => 'master_fund',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -320,6 +322,7 @@ class Member extends Model
                 'transaction_id' => Transaction::generateTransactionId('LNP-D'),
                 'transaction_date' => $date,
                 'type' => 'debit',
+                'debit_or_credit' => 'debit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -335,6 +338,7 @@ class Member extends Model
                 'transaction_id' => Transaction::generateTransactionId('LNP-C'),
                 'transaction_date' => $date,
                 'type' => 'loan_repayment',
+                'debit_or_credit' => 'credit',
                 'target_account' => 'master_fund',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -424,9 +428,8 @@ class Member extends Model
                     'transaction_id' => Transaction::generateTransactionId('EXT-E'),
                     'transaction_date' => $txDate,
                     'type' => 'import_deposit',
-                    // Target specific bank for tracking if we knew it? 
-                    // importFunds doesn't specify a bank account ID, so we use dummy or generic.
-                    'target_account' => "user_bank", 
+                    'debit_or_credit' => 'credit',
+                    'target_account' => 'user_bank',
                     'amount' => $amount,
                     'user_id' => $user->id,
                     'status' => 'pending',
@@ -439,6 +442,7 @@ class Member extends Model
                     'transaction_id' => Transaction::generateTransactionId('EXT-M'),
                     'transaction_date' => $txDate,
                     'type' => 'external_import',
+                    'debit_or_credit' => 'credit',
                     'target_account' => 'master_bank',
                     'amount' => $amount,
                     'related_transaction_id' => $txExternal->id,
@@ -453,6 +457,7 @@ class Member extends Model
                     'transaction_id' => Transaction::generateTransactionId('CTB-D'),
                     'transaction_date' => $txDate,
                     'type' => 'debit',
+                    'debit_or_credit' => 'debit',
                     'target_account' => 'user_bank',
                     'amount' => $amount,
                     'user_id' => $user->id,
@@ -466,6 +471,7 @@ class Member extends Model
                     'transaction_id' => Transaction::generateTransactionId('CTB-C'),
                     'transaction_date' => $txDate,
                     'type' => 'contribution',
+                    'debit_or_credit' => 'credit',
                     'target_account' => 'master_fund',
                     'amount' => $amount,
                     'user_id' => $user->id,
@@ -544,8 +550,7 @@ class Member extends Model
             ->get();
             
         return $transactions->sum(function($tx) {
-            $isCredit = in_array($tx->type, ['credit', 'external_import', 'allocation_from_parent', 'import_deposit', 'loan_disbursement']);
-            return $isCredit ? (float)$tx->amount : -(float)$tx->amount;
+            return $tx->debit_or_credit === 'credit' ? (float)$tx->amount : -(float)$tx->amount;
         });
     }
 
@@ -555,15 +560,13 @@ class Member extends Model
      */
     public function computeFundAccountBalanceFromTransactions(): float
     {
-        // Fund share is updated whenever master_fund is targeting a user, or direct user_fund.
         $transactions = $this->user->transactions()
             ->where(fn($q) => $q->where('target_account', 'master_fund')->orWhere('target_account', 'user_fund'))
             ->where('status', 'complete')
             ->get();
 
         return $transactions->sum(function($tx) {
-            $isCredit = in_array($tx->type, ['contribution', 'loan_repayment', 'credit']);
-            return $isCredit ? (float)$tx->amount : -(float)$tx->amount;
+            return $tx->debit_or_credit === 'credit' ? (float)$tx->amount : -(float)$tx->amount;
         });
     }
 
@@ -616,7 +619,8 @@ class Member extends Model
             $outTx = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('AL-OUT'),
                 'transaction_date' => $date,
-                'type' => 'debit',
+                'type' => 'allocation_to_dependant',
+                'debit_or_credit' => 'debit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $this->user_id,
@@ -630,6 +634,7 @@ class Member extends Model
                 'transaction_id' => Transaction::generateTransactionId('AL-IN'),
                 'transaction_date' => $date,
                 'type' => 'allocation_from_parent',
+                'debit_or_credit' => 'credit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $dependent->user_id,

@@ -36,7 +36,9 @@ class ExternalBankImport extends Model
     {
         static::deleting(function (ExternalBankImport $import): void {
             $account = $import->externalBankAccount;
-            if ($account && $import->imported_to_master) {
+            if ($account) {
+                // Any import that adjusted the external bank's current_balance should be reversed on delete.
+                // Manual entries adjust balance immediately; postToMasterBank() also increments it.
                 $account->decrement('current_balance', $import->amount);
             }
         });
@@ -72,13 +74,17 @@ class ExternalBankImport extends Model
             throw new \RuntimeException('External bank account not found.');
         }
 
+        $rawAmount = (float) $this->amount;
+        $debitOrCredit = $rawAmount >= 0 ? 'credit' : 'debit';
+        $amount = abs($rawAmount);
+
         $transaction = Transaction::create([
             'transaction_id' => Transaction::generateTransactionId('EXT'),
             'transaction_date' => $this->transaction_date,
             'type' => 'external_import',
-            'from_account' => $bank->bank_name ?? 'External Bank',
-            'to_account' => 'Master Bank Account',
-            'amount' => $this->amount,
+            'debit_or_credit' => $debitOrCredit,
+            'target_account' => 'master_bank',
+            'amount' => $amount,
             'reference' => $this->external_ref_id,
             'status' => 'pending',
             'notes' => $this->description,

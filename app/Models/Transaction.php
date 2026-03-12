@@ -16,6 +16,7 @@ class Transaction extends Model
         'transaction_id',
         'transaction_date',
         'type',
+        'debit_or_credit',
         'target_account',
         'amount',
         'user_id',
@@ -70,6 +71,20 @@ class Transaction extends Model
                 return;
             }
             $transaction->reverseBalanceEffect();
+
+            // If this is an external_import that was posted from an ExternalBankImport,
+            // reset the import's imported_to_master flag and restore the external bank balance
+            // so the user can safely re-import later.
+            if ($transaction->type === 'external_import') {
+                $import = ExternalBankImport::where('transaction_id', $transaction->id)->first();
+                if ($import && $import->externalBankAccount) {
+                    $import->externalBankAccount->decrement('current_balance', $import->amount);
+                    $import->update([
+                        'imported_to_master' => false,
+                        'transaction_id' => null,
+                    ]);
+                }
+            }
         });
     }
 
@@ -124,14 +139,13 @@ class Transaction extends Model
         }
 
         DB::transaction(function () use ($reason) {
-            // Create reversal transaction: 
-            // If original was credit, reversal is debit. If original was debit, reversal is credit.
-            $reversalType = ($this->type === 'debit' || !$this->isCreditType($this->type)) ? 'credit' : 'debit';
+            $reversalDC = $this->debit_or_credit === 'credit' ? 'debit' : 'credit';
             
             $reversal = static::create([
                 'transaction_id' => static::generateTransactionId('REV'),
                 'transaction_date' => now(),
-                'type' => $reversalType,
+                'type' => 'reversal',
+                'debit_or_credit' => $reversalDC,
                 'target_account' => $this->target_account,
                 'amount' => $this->amount,
                 'user_id' => $this->user_id,
@@ -154,20 +168,14 @@ class Transaction extends Model
     }
 
     /**
-     * Increment/Decrement the target account balance based on transaction type.
+     * Increment/Decrement the target account balance based on debit_or_credit.
      * @param bool $isProcessing True if we are applying the transaction, False if we are reversing it.
      */
     public function adjustBalance(bool $isProcessing): void
     {
         $amount = (float) $this->amount;
-        $isCredit = $this->isCreditType($this->type);
-        
-        if ($this->type === 'adjustment') {
-            $isCredit = $amount >= 0;
-        }
+        $isCredit = $this->debit_or_credit === 'credit';
 
-        // Apply logic: Credit increases balance, Debit decreases balance.
-        // If reversing, flip the logic.
         $shouldIncrease = $isProcessing ? $isCredit : !$isCredit;
         $adjustment = $shouldIncrease ? abs($amount) : -abs($amount);
 
@@ -175,11 +183,11 @@ class Transaction extends Model
     }
 
     /**
-     * Helper to determine if a type is fundamentally a credit (increase) or debit (decrease)
+     * Whether this transaction is a credit (increases balance on target account).
      */
-    private function isCreditType(string $type): bool
+    public function isCredit(): bool
     {
-        return in_array($type, ['credit', 'external_import', 'contribution', 'loan_repayment', 'import_deposit']);
+        return $this->debit_or_credit === 'credit';
     }
 
     private function executeAdjustment(?string $target, float $amount): void

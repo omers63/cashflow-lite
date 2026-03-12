@@ -552,8 +552,8 @@
                             <tr class="border-b border-gray-100 dark:border-white/5">
                                 <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Date</th>
                                 <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">From</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">To</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">D/C</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Account</th>
                                 <th class="px-6 py-3 text-right text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Amount</th>
                                 <th class="px-6 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Notes</th>
                             </tr>
@@ -576,8 +576,12 @@
                                             {{ str_replace('_', ' ', ucfirst($tx->type)) }}
                                         </span>
                                     </td>
-                                    <td class="px-6 py-3.5 text-gray-500 dark:text-gray-400 max-w-[150px] truncate">{{ $tx->from_account ?? '—' }}</td>
-                                    <td class="px-6 py-3.5 text-gray-500 dark:text-gray-400 max-w-[150px] truncate">{{ $tx->to_account ?? '—' }}</td>
+                                    <td class="px-6 py-3.5">
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ $tx->debit_or_credit === 'credit' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-400' }}">
+                                            {{ ucfirst($tx->debit_or_credit) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-3.5 text-gray-500 dark:text-gray-400 max-w-[150px] truncate">{{ str_replace('_', ' ', ucfirst($tx->target_account ?? '—')) }}</td>
                                     <td class="px-6 py-3.5 text-right font-semibold whitespace-nowrap {{ $tx->amount < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-gray-900 dark:text-white' }}">
                                         ${{ number_format((float) $tx->amount, 2) }}
                                     </td>

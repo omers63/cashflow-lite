@@ -639,26 +639,30 @@ class ImportExternalBank extends Page implements HasTable
             $duplicates = 0;
 
             foreach ($entries as $row) {
-                $isDuplicate = ExternalBankImport::where('external_bank_account_id', $bankId)
+                $isDuplicate = ExternalBankImport::withTrashed()
+                    ->where('external_bank_account_id', $bankId)
                     ->where('external_ref_id', $row['external_ref_id'])
                     ->exists();
 
-                $import = ExternalBankImport::create([
+                if ($isDuplicate) {
+                    $duplicates++;
+                    continue;
+                }
+
+                ExternalBankImport::create([
                     'external_bank_account_id' => $bankId,
                     'import_date' => now(),
                     'transaction_date' => $row['transaction_date'],
                     'external_ref_id' => $row['external_ref_id'],
                     'amount' => $row['amount'],
                     'description' => $row['description'] ?? null,
-                    'is_duplicate' => $isDuplicate,
+                    'is_duplicate' => false,
                     'imported_to_master' => false,
                     'notes' => $row['notes'] ?? null,
                     'imported_by' => auth()->id(),
                 ]);
 
-                if (! $isDuplicate) {
-                    $imported++;
-                }
+                $imported++;
             }
 
             DB::commit();
@@ -742,7 +746,8 @@ class ImportExternalBank extends Page implements HasTable
                 $description = $row['description'] ?? '';
                 $externalRefId = $this->makeExcelExternalRefId($bankId, $transactionDate, $description, $amount, $row['row_index']);
 
-                $isDuplicate = ExternalBankImport::where('external_bank_account_id', $bankId)
+                $isDuplicate = ExternalBankImport::withTrashed()
+                    ->where('external_bank_account_id', $bankId)
                     ->where('external_ref_id', $externalRefId)
                     ->exists();
 

@@ -24,6 +24,7 @@ class TransactionService
                 'transaction_id' => Transaction::generateTransactionId('CTB-D'),
                 'transaction_date' => now(),
                 'type' => 'debit',
+                'debit_or_credit' => 'debit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -37,7 +38,8 @@ class TransactionService
             $credit = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('CTB-C'),
                 'transaction_date' => now(),
-                'type' => 'contribution', // Keep type for reporting, logic handles it as credit
+                'type' => 'contribution',
+                'debit_or_credit' => 'credit',
                 'target_account' => 'master_fund',
                 'amount' => $amount,
                 'user_id' => $user->id,
@@ -69,6 +71,7 @@ class TransactionService
                 'transaction_id' => Transaction::generateTransactionId('DST-D'),
                 'transaction_date' => now(),
                 'type' => 'debit',
+                'debit_or_credit' => 'debit',
                 'target_account' => 'master_bank',
                 'amount' => $amount,
                 'status' => 'pending',
@@ -82,6 +85,7 @@ class TransactionService
                 'transaction_id' => Transaction::generateTransactionId('DST-C'),
                 'transaction_date' => now(),
                 'type' => 'master_to_user_bank',
+                'debit_or_credit' => 'credit',
                 'target_account' => 'user_bank',
                 'amount' => $amount,
                 'user_id' => $user->id,

@@ -145,17 +145,15 @@ class ReconciliationService
     {
         $masterBank = MasterAccount::getMasterBank();
         $credits = (float) Transaction::where('target_account', 'master_bank')
-            ->where(function($q) {
-                $q->whereIn('type', ['external_import', 'credit', 'import_deposit'])
-                  ->orWhere('type', 'adjustment')->where('amount', '>', 0);
-            })->sum('amount');
+            ->where('debit_or_credit', 'credit')
+            ->where('status', 'complete')
+            ->sum('amount');
         $debits = (float) Transaction::where('target_account', 'master_bank')
-            ->where(function($q) {
-                $q->where('type', 'debit')
-                  ->orWhere('type', 'adjustment')->where('amount', '<', 0);
-            })->sum('amount');
+            ->where('debit_or_credit', 'debit')
+            ->where('status', 'complete')
+            ->sum('amount');
             
-        $recomputed = $credits - abs($debits);
+        $recomputed = $credits - $debits;
         $stored = (float) $masterBank->balance;
         $variance = $stored - $recomputed;
         $status = abs($variance) < $this->tolerance ? 'PASS' : 'FAIL';
@@ -205,17 +203,15 @@ class ReconciliationService
     {
         $masterFund = MasterAccount::getMasterFund();
         $credits = (float) Transaction::where('target_account', 'master_fund')
-            ->where(function($q) {
-                $q->whereIn('type', ['contribution', 'loan_repayment', 'credit'])
-                  ->orWhere('type', 'adjustment')->where('amount', '>', 0);
-            })->sum('amount');
+            ->where('debit_or_credit', 'credit')
+            ->where('status', 'complete')
+            ->sum('amount');
         $debits = (float) Transaction::where('target_account', 'master_fund')
-            ->where(function($q) {
-                $q->whereIn('type', ['loan_disbursement', 'debit'])
-                  ->orWhere('type', 'adjustment')->where('amount', '<', 0);
-            })->sum('amount');
+            ->where('debit_or_credit', 'debit')
+            ->where('status', 'complete')
+            ->sum('amount');
             
-        $recomputed = $credits - abs($debits);
+        $recomputed = $credits - $debits;
         $stored = (float) $masterFund->balance;
         $variance = $stored - $recomputed;
         $status = abs($variance) < $this->tolerance ? 'PASS' : 'FAIL';
@@ -529,7 +525,8 @@ class ReconciliationService
      */
     public function detectDuplicate(string $externalRefId, int $bankAccountId): bool
     {
-        return ExternalBankImport::where('external_ref_id', $externalRefId)
+        return ExternalBankImport::withTrashed()
+            ->where('external_ref_id', $externalRefId)
             ->where('external_bank_account_id', $bankAccountId)
             ->exists();
     }
@@ -545,6 +542,34 @@ class ReconciliationService
         );
 
         return DB::transaction(function () use ($data, $isDuplicate) {
+            // If this row (account + ref) already exists (even soft-deleted), do not attempt
+            // to insert another row that would violate the unique constraint. Reuse the
+            // existing row instead and treat it as a duplicate / skipped import.
+            if ($isDuplicate) {
+                $existing = ExternalBankImport::withTrashed()
+                    ->where('external_ref_id', $data['external_ref_id'])
+                    ->where('external_bank_account_id', $data['external_bank_account_id'])
+                    ->first();
+
+                if ($existing) {
+                    // If it was soft-deleted, revive it with the latest payload but keep it marked as duplicate.
+                    if ($existing->trashed()) {
+                        $existing->restore();
+                    }
+
+                    $existing->fill([
+                        ...$data,
+                        'is_duplicate' => true,
+                        // Do not auto-post to master on duplicate
+                        'imported_to_master' => false,
+                        'import_date' => $existing->import_date ?? now(),
+                        'imported_by' => $existing->imported_by ?? auth()->id(),
+                    ])->save();
+
+                    return $existing;
+                }
+            }
+
             $import = ExternalBankImport::create([
                 ...$data,
                 'is_duplicate' => $isDuplicate,
@@ -559,6 +584,7 @@ class ReconciliationService
                     'transaction_id' => Transaction::generateTransactionId('EXT-E'),
                     'transaction_date' => $data['transaction_date'],
                     'type' => 'import_deposit',
+                    'debit_or_credit' => 'credit',
                     'target_account' => "external_bank:{$data['external_bank_account_id']}",
                     'amount' => $data['amount'],
                     'reference' => $data['external_ref_id'],
@@ -572,6 +598,7 @@ class ReconciliationService
                     'transaction_id' => Transaction::generateTransactionId('EXT-M'),
                     'transaction_date' => $data['transaction_date'],
                     'type' => 'external_import',
+                    'debit_or_credit' => 'credit',
                     'target_account' => 'master_bank',
                     'amount' => $data['amount'],
                     'related_transaction_id' => $txExternal->id,

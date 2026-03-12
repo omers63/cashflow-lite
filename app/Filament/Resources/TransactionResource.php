@@ -5,7 +5,6 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TransactionResource\Pages;
 use App\Models\Member;
 use App\Models\Transaction;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Filament\Actions;
 use Filament\Forms;
@@ -13,11 +12,10 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Infolists;
-use Filament\Infolists\Infolist;
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 
 class TransactionResource extends Resource
 {
@@ -43,6 +41,7 @@ class TransactionResource extends Resource
                             ->required(),
 
                         Forms\Components\Select::make('type')
+                            ->label('Transaction Type')
                             ->options([
                                 'external_import' => 'External Bank Import',
                                 'master_to_user_bank' => 'Master to User Bank',
@@ -50,45 +49,74 @@ class TransactionResource extends Resource
                                 'loan_repayment' => 'Loan Repayment',
                                 'loan_disbursement' => 'Loan Disbursement',
                                 'adjustment' => 'Adjustment',
-                                'credit' => 'Credit (Add Funds)',
-                                'debit' => 'Debit (Deduct Funds)',
-                            ])
-                            ->required()
-                            ->reactive(),
-
-                        Forms\Components\Select::make('target_account')
-                            ->label('Target Account')
-                            ->options([
-                                'master_bank' => 'Master Bank',
-                                'master_fund' => 'Master Fund',
-                                'user_bank' => 'Member Bank',
-                                'user_fund' => 'Member Fund',
-                                'external_bank' => 'External Bank',
                             ])
                             ->required()
                             ->live()
-                            ->afterStateUpdated(fn ($set) => $set('external_bank_account_id', null)),
+                            ->afterStateUpdated(function (Get $get, Set $set, ?string $state): void {
+                                $set('target_account', null);
+                                $set('external_bank_account_id', null);
+                                $set('debit_or_credit', match ($state) {
+                                    'external_import', 'master_to_user_bank', 'loan_disbursement' => 'credit',
+                                    'contribution', 'loan_repayment' => 'debit',
+                                    default => $get('debit_or_credit') ?: 'credit',
+                                });
+                            }),
 
+                        Forms\Components\Select::make('debit_or_credit')
+                            ->label('Debit / Credit')
+                            ->options([
+                                'debit' => 'Debit',
+                                'credit' => 'Credit',
+                            ])
+                            ->required()
+                            ->default('credit')
+                            ->live(),
+
+                        // External import: target = selected external bank only
                         Forms\Components\Select::make('external_bank_account_id')
                             ->label('External Bank Account')
                             ->options(\App\Models\ExternalBankAccount::pluck('bank_name', 'id'))
                             ->searchable()
                             ->preload()
-                            ->required(fn($get) => $get('target_account') === 'external_bank')
-                            ->visible(fn($get) => $get('target_account') === 'external_bank')
-                            ->afterStateUpdated(function ($state, $set) {
-                                if ($state) {
-                                    $set('target_account', "external_bank:{$state}");
-                                }
-                            }),
+                            ->required(fn(Get $get): bool => $get('type') === 'external_import')
+                            ->visible(fn(Get $get): bool => $get('type') === 'external_import')
+                            ->live(),
 
+                        // Master to User Bank, Contribution, Loan Repayment: target = member bank only
                         Forms\Components\Select::make('user_id')
-                            ->label('User')
-                            ->relationship('user', 'name')
+                            ->label('Member')
+                            ->relationship('user', 'name', fn($query) => $query->whereHas('member'))
                             ->searchable()
                             ->preload()
-                            ->required(fn ($get) => in_array($get('target_account'), ['user_bank', 'user_fund']))
-                            ->visible(fn ($get) => in_array($get('target_account'), ['user_bank', 'user_fund'])),
+                            ->required(fn(Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true))
+                            ->visible(fn(Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true)),
+
+                        // Adjustment only: target can be any account (including each member's bank and fund)
+                        Forms\Components\Select::make('target_account')
+                            ->label('Target Account')
+                            ->options(function (): array {
+                                $base = [
+                                    'master_bank' => 'Master Bank',
+                                    'master_fund' => 'Master Fund',
+                                ];
+                                $members = \App\Models\Member::with('user')
+                                    ->whereHas('user')
+                                    ->get();
+                                $memberAccounts = [];
+                                foreach ($members as $member) {
+                                    $label = $member->user->name . ' (' . ($member->user->user_code ?? '') . ')';
+                                    $memberAccounts["user_bank:{$member->user_id}"] = "Member Bank – {$label}";
+                                    $memberAccounts["user_fund:{$member->user_id}"] = "Member Fund – {$label}";
+                                }
+                                $external = \App\Models\ExternalBankAccount::all()
+                                    ->mapWithKeys(fn($b) => ["external_bank:{$b->id}" => "External: {$b->bank_name}"])
+                                    ->all();
+                                return $base + $memberAccounts + $external;
+                            })
+                            ->required(fn(Get $get): bool => $get('type') === 'adjustment')
+                            ->visible(fn(Get $get): bool => $get('type') === 'adjustment')
+                            ->searchable()
+                            ->live(),
 
                         Forms\Components\TextInput::make('amount')
                             ->numeric()
@@ -137,12 +165,12 @@ class TransactionResource extends Resource
                     ->badge()
                     ->colors([
                         'primary' => 'external_import',
-                        'success' => ['contribution', 'credit'],
+                        'success' => 'contribution',
                         'warning' => 'loan_repayment',
-                        'danger' => ['loan_disbursement', 'debit'],
+                        'danger' => 'loan_disbursement',
                         'info' => 'master_to_user_bank',
                         'secondary' => 'adjustment',
-                        'gray' => ['allocation_to_dependant', 'allocation_from_parent'],
+                        'gray' => ['allocation_to_dependant', 'allocation_from_parent', 'reversal'],
                     ])
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
 
@@ -153,19 +181,11 @@ class TransactionResource extends Resource
 
                 Tables\Columns\TextColumn::make('amount')
                     ->state(function (Transaction $record) {
-                        $isCredit = $record->isCreditType($record->type);
-                        if ($record->type === 'adjustment') {
-                            $isCredit = $record->amount >= 0;
-                        }
-                        return $isCredit ? $record->amount : -$record->amount;
+                        return $record->isCredit() ? $record->amount : -$record->amount;
                     })
                     ->money('USD')
                     ->color(function (Transaction $record) {
-                        $isCredit = $record->isCreditType($record->type);
-                        if ($record->type === 'adjustment') {
-                            $isCredit = $record->amount >= 0;
-                        }
-                        return $isCredit ? 'success' : 'danger';
+                        return $record->isCredit() ? 'success' : 'danger';
                     })
                     ->sortable()
                     ->summarize([
@@ -195,18 +215,9 @@ class TransactionResource extends Resource
             ])
             ->defaultSort('transaction_date', 'desc')
             ->recordClasses(function (Transaction $record) {
-                $isCredit = $record->isCreditType($record->type);
-                if ($record->type === 'adjustment') {
-                    $isCredit = $record->amount >= 0;
-                }
-
-                if ($isCredit === true) {
-                    return 'bg-success-50 dark:bg-success-950';
-                }
-                if ($isCredit === false) {
-                    return 'bg-danger-50 dark:bg-danger-950';
-                }
-                return null;
+                return $record->isCredit()
+                    ? 'bg-success-50 dark:bg-success-950'
+                    : 'bg-danger-50 dark:bg-danger-950';
             })
             ->filters([
                 Tables\Filters\SelectFilter::make('type')
@@ -217,8 +228,6 @@ class TransactionResource extends Resource
                         'loan_repayment' => 'Loan Repayment',
                         'loan_disbursement' => 'Loan Disbursement',
                         'adjustment' => 'Adjustment',
-                        'credit' => 'Credit (Add Funds)',
-                        'debit' => 'Debit (Deduct Funds)',
                     ])
                     ->multiple(),
 
@@ -258,10 +267,10 @@ class TransactionResource extends Resource
                     })
                     ->indicateUsing(function (array $data): array {
                         $indicators = [];
-                        if (! empty($data['from'])) {
+                        if (!empty($data['from'])) {
                             $indicators[] = 'From: ' . \Carbon\Carbon::parse($data['from'])->toFormattedDateString();
                         }
-                        if (! empty($data['to'])) {
+                        if (!empty($data['to'])) {
                             $indicators[] = 'To: ' . \Carbon\Carbon::parse($data['to'])->toFormattedDateString();
                         }
                         return $indicators;
@@ -281,7 +290,7 @@ class TransactionResource extends Resource
                             ->options(
                                 Member::with('user')
                                     ->get()
-                                    ->mapWithKeys(fn (Member $m) => [
+                                    ->mapWithKeys(fn(Member $m) => [
                                         $m->id => $m->user
                                             ? "{$m->user->name} ({$m->user->user_code})"
                                             : "Member #{$m->id}",
@@ -303,7 +312,7 @@ class TransactionResource extends Resource
                             ->success()
                             ->send();
                     })
-                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && ! $record->user_id),
+                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && !$record->user_id),
 
                 Actions\Action::make('clear_assignment')
                     ->label('Clear Assignment')
@@ -366,17 +375,24 @@ class TransactionResource extends Resource
                             ->badge()
                             ->color(fn($state) => match ($state) {
                                 'external_import' => 'primary',
-                                'contribution', 'credit' => 'success',
+                                'contribution' => 'success',
                                 'loan_repayment' => 'warning',
-                                'loan_disbursement', 'debit' => 'danger',
+                                'loan_disbursement' => 'danger',
                                 'master_to_user_bank' => 'info',
                                 'adjustment' => 'secondary',
-                                'allocation_to_dependant' => 'gray',
-                                'allocation_from_parent' => 'gray',
+                                'allocation_to_dependant', 'allocation_from_parent' => 'gray',
+                                'reversal' => 'gray',
                                 default => 'secondary',
                             })
                             ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
-                        Infolists\Components\TextEntry::make('target_account'),
+                        Infolists\Components\TextEntry::make('debit_or_credit')
+                            ->label('Debit / Credit')
+                            ->badge()
+                            ->color(fn($state) => $state === 'credit' ? 'success' : 'danger')
+                            ->formatStateUsing(fn($state) => ucfirst($state)),
+                        Infolists\Components\TextEntry::make('target_account')
+                            ->placeholder('—')
+                            ->formatStateUsing(fn(?string $state): string => $state ? str_replace('_', ' ', ucfirst($state)) : '—'),
                         Infolists\Components\TextEntry::make('amount')
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('reference'),

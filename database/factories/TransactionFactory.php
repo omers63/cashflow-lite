@@ -19,8 +19,8 @@ class TransactionFactory extends Factory
             'transaction_id' => Transaction::generateTransactionId(),
             'transaction_date' => fake()->dateTimeBetween('-30 days', 'now'),
             'type' => $type,
-            'from_account' => $this->getFromAccount($type),
-            'to_account' => $this->getToAccount($type),
+            'debit_or_credit' => $this->getDebitOrCredit($type),
+            'target_account' => $this->getTargetAccount($type),
             'amount' => fake()->randomFloat(2, 10, 1000),
             'user_id' => User::factory(),
             'reference' => fake()->optional()->uuid(),
@@ -29,25 +29,22 @@ class TransactionFactory extends Factory
         ];
     }
 
-    private function getFromAccount($type): string
+    private function getDebitOrCredit(string $type): string
     {
-        return match($type) {
-            'external_import' => 'External Bank',
-            'master_to_user_bank' => 'Master Bank Account',
-            'contribution' => 'User Bank Account',
-            'loan_repayment' => 'User Bank Account',
-            default => 'Unknown',
+        return match ($type) {
+            'external_import', 'contribution', 'loan_repayment', 'master_to_user_bank' => 'credit',
+            default => 'debit',
         };
     }
 
-    private function getToAccount($type): string
+    private function getTargetAccount(string $type): string
     {
-        return match($type) {
-            'external_import' => 'Master Bank Account',
-            'master_to_user_bank' => 'User Bank Account',
-            'contribution' => 'User Fund Account',
-            'loan_repayment' => 'User Fund Account',
-            default => 'Unknown',
+        return match ($type) {
+            'external_import' => 'master_bank',
+            'master_to_user_bank' => 'user_bank',
+            'contribution' => 'master_fund',
+            'loan_repayment' => 'master_fund',
+            default => 'user_bank',
         };
     }
 }

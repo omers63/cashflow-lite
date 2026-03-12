@@ -42,8 +42,8 @@
                             <tr>
                                 <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Date</th>
                                 <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Type</th>
-                                <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">From</th>
-                                <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">To</th>
+                                <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">D/C</th>
+                                <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Account</th>
                                 <th class="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">Amount</th>
                                 <th class="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200">Notes</th>
                             </tr>
@@ -57,11 +57,13 @@
                                     <td class="px-4 py-3">
                                         {{ str_replace('_', ' ', ucfirst($tx->type)) }}
                                     </td>
-                                    <td class="px-4 py-3 text-gray-700 dark:text-gray-200">
-                                        {{ $tx->from_account ?? '—' }}
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ $tx->debit_or_credit === 'credit' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-400' }}">
+                                            {{ ucfirst($tx->debit_or_credit) }}
+                                        </span>
                                     </td>
                                     <td class="px-4 py-3 text-gray-700 dark:text-gray-200">
-                                        {{ $tx->to_account ?? '—' }}
+                                        {{ str_replace('_', ' ', ucfirst($tx->target_account ?? '—')) }}
                                     </td>
                                     <td class="px-4 py-3 text-right font-semibold">
                                         <span class="{{ $tx->amount < 0 ? 'text-danger-600 dark:text-danger-400' : 'text-gray-900 dark:text-gray-100' }}">

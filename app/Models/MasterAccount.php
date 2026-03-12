@@ -14,20 +14,17 @@ class MasterAccount extends Model
      */
     public function recalculateBalanceFromTransactions(): float
     {
-        $query = Transaction::query();
+        $credits = (float) Transaction::where('target_account', $this->account_type)
+            ->where('debit_or_credit', 'credit')
+            ->where('status', 'complete')
+            ->sum('amount');
 
-        if ($this->account_type === 'master_bank') {
-            $credits = (float) (clone $query)->where('type', 'external_import')->sum('amount');
-            $debits = (float) (clone $query)
-                ->whereIn('type', ['master_to_user_bank', 'loan_disbursement'])
-                ->sum('amount');
-            $balance = $credits - $debits;
-        } elseif ($this->account_type === 'master_fund') {
-            $credits = (float) (clone $query)->whereIn('type', ['contribution', 'loan_repayment'])->sum('amount');
-            $balance = $credits;
-        } else {
-            return (float) $this->balance;
-        }
+        $debits = (float) Transaction::where('target_account', $this->account_type)
+            ->where('debit_or_credit', 'debit')
+            ->where('status', 'complete')
+            ->sum('amount');
+
+        $balance = $credits - $debits;
 
         $this->update(['balance' => $balance]);
         return $balance;
