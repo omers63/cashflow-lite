@@ -190,7 +190,6 @@ class MasterAccountResource extends Resource
     {
         return [
             \App\Filament\Resources\MasterAccountResource\RelationManagers\TransactionsRelationManager::class,
-            \App\Filament\Resources\MasterAccountResource\RelationManagers\ExternalBankAccountsRelationManager::class,
         ];
     }
 

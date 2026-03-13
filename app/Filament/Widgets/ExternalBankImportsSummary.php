@@ -27,21 +27,21 @@ class ExternalBankImportsSummary extends BaseWidget
         return [
             Stat::make('Unprocessed Imports', $unprocessedCount)
                 ->description('$' . number_format($unprocessedAmount, 2) . ' pending')
-                ->descriptionIcon('heroicon-o-inbox-arrow-down')
+                ->descriptionIcon('heroicon-m-inbox-arrow-down')
                 ->color($unprocessedCount > 0 ? 'warning' : 'success')
-                ->icon('heroicon-o-inbox-arrow-down'),
+                ->icon('heroicon-m-inbox-arrow-down'),
 
             Stat::make("Today's Imports", $todayCount)
                 ->description('$' . number_format($todayAmount, 2) . ' imported today')
-                ->descriptionIcon('heroicon-o-calendar')
+                ->descriptionIcon('heroicon-m-calendar-days')
                 ->color('info')
-                ->icon('heroicon-o-calendar'),
+                ->icon('heroicon-m-calendar-days'),
 
             Stat::make('Marked Duplicates', $duplicatesCount)
                 ->description('Flagged as duplicates')
-                ->descriptionIcon('heroicon-o-document-duplicate')
+                ->descriptionIcon('heroicon-m-document-duplicate')
                 ->color($duplicatesCount > 0 ? 'gray' : 'success')
-                ->icon('heroicon-o-document-duplicate'),
+                ->icon('heroicon-m-document-duplicate'),
         ];
     }
 }

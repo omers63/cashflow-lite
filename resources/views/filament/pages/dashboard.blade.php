@@ -35,7 +35,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-8">
 
         {{-- Master Bank Balance --}}
-        <div class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-emerald-300 dark:hover:border-emerald-700">
+        <a href="{{ \App\Filament\Pages\AccountManagement::getUrl() }}" class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-emerald-300 dark:hover:border-emerald-700">
             <div class="absolute inset-0 bg-gradient-to-br from-emerald-50 to-transparent dark:from-emerald-500/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div class="absolute top-0 right-0 h-28 w-28 translate-x-8 -translate-y-8 rounded-full bg-emerald-400/10 blur-2xl group-hover:scale-125 transition-transform duration-500"></div>
             <div class="relative">
@@ -50,10 +50,10 @@
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Total system bank funds</p>
             </div>
-        </div>
+        </a>
 
         {{-- Master Fund Balance --}}
-        <div class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-violet-300 dark:hover:border-violet-700">
+        <a href="{{ \App\Filament\Pages\AccountManagement::getUrl() }}" class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-violet-300 dark:hover:border-violet-700">
             <div class="absolute inset-0 bg-gradient-to-br from-violet-50 to-transparent dark:from-violet-500/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div class="absolute top-0 right-0 h-28 w-28 translate-x-8 -translate-y-8 rounded-full bg-violet-400/10 blur-2xl group-hover:scale-125 transition-transform duration-500"></div>
             <div class="relative">
@@ -68,10 +68,10 @@
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Available for member loans</p>
             </div>
-        </div>
+        </a>
 
         {{-- Active Members --}}
-        <div class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-sky-300 dark:hover:border-sky-700">
+        <a href="{{ \App\Filament\Resources\MemberResource::getUrl('index') }}" class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-sky-300 dark:hover:border-sky-700">
             <div class="absolute inset-0 bg-gradient-to-br from-sky-50 to-transparent dark:from-sky-500/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div class="absolute top-0 right-0 h-28 w-28 translate-x-8 -translate-y-8 rounded-full bg-sky-400/10 blur-2xl group-hover:scale-125 transition-transform duration-500"></div>
             <div class="relative">
@@ -86,10 +86,10 @@
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Total registered members</p>
             </div>
-        </div>
+        </a>
 
         {{-- Active Loans --}}
-        <div class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-amber-300 dark:hover:border-amber-700">
+        <a href="{{ \App\Filament\Resources\LoanResource::getUrl('index') }}" class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-amber-300 dark:hover:border-amber-700">
             <div class="absolute inset-0 bg-gradient-to-br from-amber-50 to-transparent dark:from-amber-500/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div class="absolute top-0 right-0 h-28 w-28 translate-x-8 -translate-y-8 rounded-full bg-amber-400/10 blur-2xl group-hover:scale-125 transition-transform duration-500"></div>
             <div class="relative">
@@ -106,11 +106,11 @@
                     ${{ number_format($summary['loan_outstanding'], 2) }} outstanding
                 </p>
             </div>
-        </div>
+        </a>
 
         {{-- Open Exceptions --}}
         @php $hasExceptions = $summary['open_exceptions'] > 0; @endphp
-        <div class="group relative overflow-hidden rounded-2xl border {{ $hasExceptions ? 'border-rose-200 dark:border-rose-900/50' : 'border-gray-200 dark:border-white/10' }} bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg {{ $hasExceptions ? 'hover:border-rose-400' : 'hover:border-emerald-300 dark:hover:border-emerald-700' }}">
+        <a href="{{ \App\Filament\Resources\ExceptionResource::getUrl('index') }}" class="group relative overflow-hidden rounded-2xl border {{ $hasExceptions ? 'border-rose-200 dark:border-rose-900/50' : 'border-gray-200 dark:border-white/10' }} bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg {{ $hasExceptions ? 'hover:border-rose-400' : 'hover:border-emerald-300 dark:hover:border-emerald-700' }}">
             <div class="absolute inset-0 bg-gradient-to-br {{ $hasExceptions ? 'from-rose-50 dark:from-rose-500/5' : 'from-emerald-50 dark:from-emerald-500/5' }} to-transparent {{ $hasExceptions ? 'opacity-60' : 'opacity-0 group-hover:opacity-100' }} transition-opacity"></div>
             <div class="absolute top-0 right-0 h-28 w-28 translate-x-8 -translate-y-8 rounded-full {{ $hasExceptions ? 'bg-rose-400/10' : 'bg-emerald-400/10' }} blur-2xl group-hover:scale-125 transition-transform duration-500"></div>
             <div class="relative">
@@ -131,7 +131,7 @@
                     @endif
                 </p>
             </div>
-        </div>
+        </a>
 
         {{-- Fund / Bank Split --}}
         @php
@@ -141,7 +141,7 @@
             $fundPct  = $totalBal > 0 ? round(($fundBal / $totalBal) * 100) : 0;
             $bankPct  = $totalBal > 0 ? 100 - $fundPct : 0;
         @endphp
-        <div class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-indigo-300 dark:hover:border-indigo-700">
+        <a href="{{ \App\Filament\Pages\AccountManagement::getUrl() }}" class="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6 shadow-sm transition-all hover:shadow-lg hover:border-indigo-300 dark:hover:border-indigo-700">
             <div class="absolute inset-0 bg-linear-to-br from-indigo-50 to-transparent dark:from-indigo-500/5 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div class="relative">
                 <div class="flex items-center gap-3 mb-4">
@@ -160,7 +160,7 @@
                 </div>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Total: ${{ number_format($totalBal, 2) }}</p>
             </div>
-        </div>
+        </a>
 
     </div>
 

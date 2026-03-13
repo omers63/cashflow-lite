@@ -77,11 +77,11 @@ class ImportsRelationManager extends RelationManager
             ->recordActions([
                 Actions\ActionGroup::make([
                     Actions\Action::make('import_to_master')
-                        ->label('Import to Master')
-                        ->tooltip('Import to Master')
+                        ->label('Post To Master')
+                        ->tooltip('Post To Master')
                         ->icon('heroicon-o-arrow-down-tray')
                     ->requiresConfirmation()
-                    ->modalHeading('Import to Master Bank')
+                    ->modalHeading('Post To Master Bank')
                     ->modalDescription(fn (ExternalBankImport $record) => "Post this transaction (\${$record->amount}) to the Master Bank Account?")
                         ->action(function (ExternalBankImport $record): void {
                             DB::transaction(function () use ($record): void {
@@ -105,7 +105,7 @@ class ImportsRelationManager extends RelationManager
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('import_to_master_bulk')
-                        ->label('Import to Master')
+                        ->label('Post To Master')
                         ->icon('heroicon-o-arrow-down-tray')
                         ->color('success')
                         ->requiresConfirmation()
@@ -128,8 +128,8 @@ class ImportsRelationManager extends RelationManager
                             $owner->refresh();
                             $this->dispatch('refreshExternalBankAccountRecord', accountId: $owner->getKey());
                             Notification::make()
-                                ->title('Import to Master complete')
-                                ->body($imported . ' transaction(s) imported.' . ($skipped > 0 ? " {$skipped} skipped." : ''))
+                                ->title('Post To Master complete')
+                                ->body($imported . ' transaction(s) posted.' . ($skipped > 0 ? " {$skipped} skipped." : ''))
                                 ->success()
                                 ->send();
                         })

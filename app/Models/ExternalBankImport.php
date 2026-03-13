@@ -12,6 +12,7 @@ class ExternalBankImport extends Model
 
     protected $fillable = [
         'external_bank_account_id',
+        'external_bank_import_batch_id',
         'import_date',
         'transaction_date',
         'external_ref_id',
@@ -61,11 +62,11 @@ class ExternalBankImport extends Model
 
     /**
      * Post this import to the Master Bank Account: create a Transaction, process it, and mark import as imported.
-     * Call this when the user explicitly chooses "Import to Master" (do not call automatically on create).
+     * Call this when the user explicitly chooses "Post To Master" (do not call automatically on create).
      */
     public function postToMasterBank(): void
     {
-        if ($this->imported_to_master || $this->is_duplicate) {
+        if ($this->imported_to_master) {
             return;
         }
 

@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\BalanceSnapshot;
 use App\Models\Exception as ExceptionModel;
+use App\Models\ExternalBankImportBatch;
 use App\Models\LoanPayment;
 use App\Models\Reconciliation;
 use Filament\Actions\Action;
@@ -53,6 +54,7 @@ class PurgeDatabase extends Page
             'Balance snapshots' => BalanceSnapshot::class,
             'Reconciliations' => Reconciliation::class,
             'Loan payments' => LoanPayment::class,
+            'External bank import batches' => ExternalBankImportBatch::class,
             'Exceptions' => ExceptionModel::class,
         ];
     }

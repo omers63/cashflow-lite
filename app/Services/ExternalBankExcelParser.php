@@ -88,8 +88,13 @@ class ExternalBankExcelParser
 
             $balance = $this->getCellValue($sheet, $map['col_balance'], $row);
 
+            // Use a unique placeholder date per row when date is missing, so duplicate detection
+            // doesn't treat all such rows as the same (same date+amount+description).
+            $tz = config('app.timezone', 'UTC');
+            $resolvedDate = $transactionDate ?? Carbon::createFromDate(1900, 1, 1, $tz)->addDays($row)->startOfDay();
+
             $rows[] = [
-                'transaction_date' => $transactionDate ?? now(),
+                'transaction_date' => $resolvedDate->copy(),
                 'transaction_type' => $transactionType,
                 'description' => $description ?? '',
                 'amount' => $amount ?? 0.0,
@@ -112,19 +117,24 @@ class ExternalBankExcelParser
         if ($value === null || $value === '') {
             return null;
         }
+        $carbon = null;
         if (is_numeric($value)) {
             try {
                 $date = ExcelDate::excelToDateTimeObject($value);
-                return Carbon::instance($date);
+                $carbon = Carbon::instance($date);
+            } catch (\Throwable) {
+                return null;
+            }
+        } else {
+            try {
+                $carbon = Carbon::parse((string) $value);
             } catch (\Throwable) {
                 return null;
             }
         }
-        try {
-            return Carbon::parse($value);
-        } catch (\Throwable) {
-            return null;
-        }
+        // Normalize to start-of-day in app timezone so duplicate detection uses a stable calendar date
+        $tz = config('app.timezone', 'UTC');
+        return $carbon->copy()->timezone($tz)->startOfDay();
     }
 
     private function parseAmount(mixed $value): ?float

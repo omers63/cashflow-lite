@@ -3,11 +3,13 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\ExternalBankAccountResource;
+use App\Filament\Resources\ExternalBankImportBatchResource;
 use App\Filament\Resources\MasterAccountResource;
 use App\Filament\Resources\MemberResource;
 use App\Filament\Resources\UserResource;
 use App\Models\MasterAccount;
 use App\Models\Member;
+use App\Models\Transaction;
 use Filament\Actions;
 use Filament\Pages\Page;
 use Filament\Tables;
@@ -54,12 +56,26 @@ class AccountManagement extends Page implements HasTable
             'id' => $masterBank->id,
             'balance' => (float) $masterBank->balance,
             'balance_date' => $masterBank->balance_date?->format('M d, Y'),
+            'transaction_count' => Transaction::query()
+                ->where('target_account', 'master_bank')
+                ->count(),
+            'last_transaction_date' => Transaction::query()
+                ->where('target_account', 'master_bank')
+                ->latest('transaction_date')
+                ->value('transaction_date'),
         ] : null;
 
         $this->masterFundSummary = $masterFund ? [
             'id' => $masterFund->id,
             'balance' => (float) $masterFund->balance,
             'balance_date' => $masterFund->balance_date?->format('M d, Y'),
+            'transaction_count' => Transaction::query()
+                ->where('target_account', 'master_fund')
+                ->count(),
+            'last_transaction_date' => Transaction::query()
+                ->where('target_account', 'master_fund')
+                ->latest('transaction_date')
+                ->value('transaction_date'),
         ] : null;
     }
 
@@ -100,6 +116,14 @@ class AccountManagement extends Page implements HasTable
                 ->icon('heroicon-o-archive-box')
                 ->link()
                 ->url(\App\Filament\Resources\BalanceSnapshotResource::getUrl('index')),
+
+            Actions\Action::make('import_sessions')
+                ->label('Import Sessions')
+                ->tooltip('View External Bank Import Sessions')
+                ->icon('heroicon-o-inbox-arrow-down')
+                ->button()
+                ->color('success')
+                ->url(ExternalBankImportBatchResource::getUrl('index')),
         ];
     }
 
@@ -116,7 +140,7 @@ class AccountManagement extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn () => Member::query()->with('user')->orderBy('id'))
+            ->query(fn() => Member::query()->with('user')->orderBy('id'))
             ->columns([
                 Tables\Columns\TextColumn::make('user.user_code')
                     ->label('User Code')
@@ -148,6 +172,12 @@ class AccountManagement extends Page implements HasTable
                             ->label('Total'),
                     ]),
 
+                Tables\Columns\TextColumn::make('total_balance')
+                    ->label('Total Balance')
+                    ->getStateUsing(fn(Member $record): float => (float) $record->bank_account_balance + (float) $record->fund_account_balance)
+                    ->formatStateUsing(fn($state): string => '$' . number_format((float) $state, 2))
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('outstanding_loans')
                     ->label('Outstanding Loans')
                     ->money('USD')
@@ -156,13 +186,13 @@ class AccountManagement extends Page implements HasTable
                 Tables\Columns\TextColumn::make('available_to_borrow')
                     ->label('Available to Borrow')
                     ->money('USD')
-                    ->getStateUsing(fn (Member $record) => $record->available_to_borrow),
+                    ->getStateUsing(fn(Member $record) => $record->available_to_borrow),
             ])
             ->recordActions([
                 Actions\Action::make('edit')
                     ->label('Manage')
                     ->icon('heroicon-o-pencil-square')
-                    ->url(fn (Member $record) => MemberResource::getUrl('edit', ['record' => $record])),
+                    ->url(fn(Member $record) => MemberResource::getUrl('edit', ['record' => $record])),
             ])
             ->striped()
             ->paginated([10, 25, 50]);
