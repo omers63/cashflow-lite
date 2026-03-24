@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Loan;
+use App\Models\LoanDisbursement;
 use App\Models\User;
 use App\Models\Transaction;
 use App\Models\MasterAccount;
@@ -54,58 +55,111 @@ class LoanService
     }
 
     /**
-     * Approve and disburse a loan (Paired: Debit Master Fund, Credit User Bank)
+     * Approve and disburse a loan. If the loan has a disbursement schedule (multiple parts),
+     * creates one debit/credit pair per part with that part's date; first repayment is
+     * the cycle after the last (fully) disbursed date. Otherwise creates a single
+     * disbursement at today.
      */
-    public function approveLoan(Loan $loan): Transaction
+    public function approveLoan(Loan $loan): ?Transaction
     {
         if ($loan->status !== 'pending') {
             throw new \Exception("Only pending loans can be approved");
         }
 
         $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
-
-        if ($masterFund->balance < $loan->original_amount) {
+        if (! $masterFund || (float) $masterFund->balance < (float) $loan->original_amount) {
             throw new \Exception("Insufficient master fund balance");
         }
 
         return DB::transaction(function () use ($loan) {
-            // Approve the loan object record
-            $loan->approve(auth()->id());
+            $disbursements = $loan->disbursements()->orderBy('disbursement_date')->get();
+            $lastCredit = null;
 
-            // 1. Debit Master Fund
-            $debit = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('LND-D'),
-                'transaction_date' => now(),
-                'type' => 'debit',
-                'debit_or_credit' => 'debit',
-                'target_account' => 'master_fund',
-                'amount' => $loan->original_amount,
-                'user_id' => $loan->user_id,
-                'reference' => $loan->loan_id,
-                'status' => 'pending',
-                'notes' => "Loan Disbursement Debit from Fund: {$loan->loan_id}",
-                'created_by' => auth()->id(),
-            ]);
-            $debit->process();
+            if ($disbursements->isNotEmpty()) {
+                foreach ($disbursements as $disb) {
+                    $date = $disb->disbursement_date instanceof Carbon
+                        ? $disb->disbursement_date
+                        : Carbon::parse($disb->disbursement_date);
+                    $amount = (float) $disb->amount;
 
-            // 2. Credit User Bank
-            $credit = Transaction::create([
-                'transaction_id' => Transaction::generateTransactionId('LND-C'),
-                'transaction_date' => now(),
-                'type' => 'loan_disbursement',
-                'debit_or_credit' => 'credit',
-                'target_account' => 'user_bank',
-                'amount' => $loan->original_amount,
-                'user_id' => $loan->user_id,
-                'related_transaction_id' => $debit->id,
-                'reference' => $loan->loan_id,
-                'status' => 'pending',
-                'notes' => "Loan Disbursement Credit to User Bank: {$loan->loan_id}",
-                'created_by' => auth()->id(),
-            ]);
-            $credit->process();
+                    $debit = Transaction::create([
+                        'transaction_id' => Transaction::generateTransactionId('LND-D'),
+                        'transaction_date' => $date,
+                        'type' => 'debit',
+                        'debit_or_credit' => 'debit',
+                        'target_account' => 'master_fund',
+                        'amount' => $amount,
+                        'user_id' => $loan->user_id,
+                        'reference' => $loan->loan_id,
+                        'status' => 'pending',
+                        'notes' => "Loan Disbursement Debit from Fund: {$loan->loan_id}",
+                        'created_by' => auth()->id(),
+                    ]);
+                    $debit->process();
 
-            return $credit->fresh();
+                    $credit = Transaction::create([
+                        'transaction_id' => Transaction::generateTransactionId('LND-C'),
+                        'transaction_date' => $date,
+                        'type' => 'loan_disbursement',
+                        'debit_or_credit' => 'credit',
+                        'target_account' => 'user_bank',
+                        'amount' => $amount,
+                        'user_id' => $loan->user_id,
+                        'related_transaction_id' => $debit->id,
+                        'reference' => $loan->loan_id,
+                        'status' => 'pending',
+                        'notes' => "Loan Disbursement Credit to User Bank: {$loan->loan_id}",
+                        'created_by' => auth()->id(),
+                    ]);
+                    $credit->process();
+
+                    $disb->update([
+                        'fund_debit_transaction_id' => $debit->id,
+                        'user_credit_transaction_id' => $credit->id,
+                    ]);
+                    $lastCredit = $credit;
+                }
+
+                $fullyDisbursedDate = Carbon::parse($disbursements->max('disbursement_date'));
+                $loan->update(['fully_disbursed_date' => $fullyDisbursedDate]);
+                $loan->approve(auth()->id(), $fullyDisbursedDate);
+            } else {
+                $debit = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('LND-D'),
+                    'transaction_date' => now(),
+                    'type' => 'debit',
+                    'debit_or_credit' => 'debit',
+                    'target_account' => 'master_fund',
+                    'amount' => $loan->original_amount,
+                    'user_id' => $loan->user_id,
+                    'reference' => $loan->loan_id,
+                    'status' => 'pending',
+                    'notes' => "Loan Disbursement Debit from Fund: {$loan->loan_id}",
+                    'created_by' => auth()->id(),
+                ]);
+                $debit->process();
+
+                $credit = Transaction::create([
+                    'transaction_id' => Transaction::generateTransactionId('LND-C'),
+                    'transaction_date' => now(),
+                    'type' => 'loan_disbursement',
+                    'debit_or_credit' => 'credit',
+                    'target_account' => 'user_bank',
+                    'amount' => $loan->original_amount,
+                    'user_id' => $loan->user_id,
+                    'related_transaction_id' => $debit->id,
+                    'reference' => $loan->loan_id,
+                    'status' => 'pending',
+                    'notes' => "Loan Disbursement Credit to User Bank: {$loan->loan_id}",
+                    'created_by' => auth()->id(),
+                ]);
+                $credit->process();
+                $lastCredit = $credit;
+
+                $loan->approve(auth()->id(), null);
+            }
+
+            return $lastCredit ? $lastCredit->fresh() : null;
         });
     }
 

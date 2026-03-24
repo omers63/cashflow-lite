@@ -7,6 +7,7 @@ use App\Models\Member;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Infolists;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components;
 use Filament\Schemas\Schema;
@@ -335,6 +336,34 @@ class MemberResource extends Resource
     public static function getPluralModelLabel(): string
     {
         return 'Members';
+    }
+
+    /** @return array<string, string> */
+    public static function memberImportDateFormatOptions(): array
+    {
+        return [
+            'Y-m-d' => 'YYYY-MM-DD  (e.g. 2026-01-15)',
+            'd/m/Y' => 'DD/MM/YYYY  (e.g. 15/01/2026)',
+            'm/d/Y' => 'MM/DD/YYYY  (e.g. 01/15/2026)',
+            'd-m-Y' => 'DD-MM-YYYY  (e.g. 15-01-2026)',
+            'm-d-Y' => 'MM-DD-YYYY  (e.g. 01-15-2026)',
+            'd/m/y' => 'DD/MM/YY    (e.g. 15/01/26)',
+            'm/d/y' => 'MM/DD/YY    (e.g. 01/15/26)',
+            'auto' => 'Auto-detect',
+        ];
+    }
+
+    /** @param  array{imported: int, skipped: int, errors: string[]}  $results */
+    public static function notifyMemberImportResults(string $title, array $results): void
+    {
+        $body = $results['imported'] . ' row(s) imported.'
+            . ($results['skipped'] > 0 ? ' ' . $results['skipped'] . ' skipped.' : '')
+            . (count($results['errors']) > 0 ? ' Errors: ' . implode('; ', $results['errors']) : '');
+        Notification::make()
+            ->title($title)
+            ->body($body)
+            ->success()
+            ->send();
     }
 
     public static function getNavigationBadge(): ?string

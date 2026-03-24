@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 use App\Models\Setting;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * @property float $total_paid
@@ -24,6 +25,7 @@ class Loan extends Model
         'user_id',
         'member_id',
         'origination_date',
+        'fully_disbursed_date',
         'original_amount',
         'interest_rate',
         'term_months',
@@ -35,6 +37,7 @@ class Loan extends Model
         'status',
         'is_emergency',
         'next_payment_date',
+        'maturity_date',
         'approved_by',
         'approved_at',
         'notes',
@@ -42,6 +45,7 @@ class Loan extends Model
 
     protected $casts = [
         'origination_date' => 'date',
+        'fully_disbursed_date' => 'date',
         'original_amount' => 'decimal:2',
         'interest_rate' => 'decimal:2',
         'monthly_payment' => 'decimal:2',
@@ -50,6 +54,7 @@ class Loan extends Model
         'total_paid' => 'decimal:2',
         'outstanding_balance' => 'decimal:2',
         'next_payment_date' => 'date',
+        'maturity_date' => 'date',
         'approved_at' => 'datetime',
         'is_emergency' => 'boolean',
     ];
@@ -73,6 +78,18 @@ class Loan extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(LoanPayment::class);
+    }
+
+    public function disbursements(): HasMany
+    {
+        return $this->hasMany(LoanDisbursement::class, 'loan_id');
+    }
+
+    /** Transactions linked to this loan (disbursements and repayments; reference = loan_id). */
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class, 'reference', 'loan_id')
+            ->whereIn('type', ['loan_disbursement', 'loan_repayment']);
     }
 
     // Business Logic
@@ -149,8 +166,9 @@ class Loan extends Model
         $this->total_paid = (float) ($this->total_paid + $paymentAmount);
         $this->outstanding_balance = $newBalance;
 
-        // Check if paid off
-        if ($this->outstanding_balance <= 0.01) {
+        // Check if paid off: either balance cleared or total paid covers 50% + 16% of original (payoff rule)
+        $payoffThreshold = (float) $this->original_amount * (0.50 + 0.16); // 66%
+        if ($this->outstanding_balance <= 0.01 || $this->total_paid >= $payoffThreshold - 0.01) {
             $this->status = 'paid_off';
             $this->outstanding_balance = 0.0;
             $this->next_payment_date = null;
@@ -179,22 +197,38 @@ class Loan extends Model
     }
 
     /**
-     * Generate amortization schedule
+     * Generate amortization schedule using the tier installment amount.
+     * Payment dates fall on the cycle due day (e.g. 5th). First repayment is the cycle
+     * after the first contribution due date on or after the last (full) disbursement.
      */
     public function generateAmortizationSchedule(): array
     {
         $schedule = [];
-        $balance = $this->original_amount;
-        $monthlyRate = $this->interest_rate / 100 / 12;
-        $payment = $this->monthly_payment;
-        $paymentDate = $this->next_payment_date
-            ? Carbon::parse($this->next_payment_date)
-            : Carbon::parse($this->origination_date)->addMonth();
+        $balance = (float) $this->original_amount;
+        $monthlyRate = (float) $this->interest_rate / 100 / 12;
+        $payment = (float) ($this->installment_amount ?? $this->monthly_payment);
+
+        $dueDay = Setting::getInt('collections_due_day', 5);
+        $dueDay = max(1, min(28, $dueDay));
+
+        if ($this->next_payment_date) {
+            $paymentDate = Carbon::parse($this->next_payment_date)->day($dueDay)->startOfDay();
+        } else {
+            $disbursedAt = $this->fully_disbursed_date
+                ? Carbon::parse($this->fully_disbursed_date)
+                : ($this->disbursements()->exists()
+                    ? Carbon::parse($this->disbursements()->max('disbursement_date'))
+                    : Carbon::parse($this->origination_date));
+            $paymentDate = static::firstRepaymentDateFromDisbursedAt($disbursedAt)->day($dueDay)->startOfDay();
+        }
 
         for ($i = 1; $i <= $this->term_months; $i++) {
             $interest = round($balance * $monthlyRate, 2);
             $principal = $payment - $interest;
-            $balance = max(0, $balance - $principal);
+            if ($principal > $balance) {
+                $principal = $balance;
+            }
+            $balance = max(0, round($balance - $principal, 2));
 
             $schedule[] = [
                 'payment_number' => $i,
@@ -203,12 +237,20 @@ class Loan extends Model
                 'principal' => $principal,
                 'interest' => $interest,
                 'balance' => $balance,
+                'post_date' => null,
             ];
 
-            $paymentDate->addMonth();
+            $paymentDate = $paymentDate->copy()->addMonthNoOverflow()->day($dueDay)->startOfDay();
 
             if ($balance <= 0) {
                 break;
+            }
+        }
+
+        $payments = $this->payments()->orderBy('payment_date')->get();
+        foreach ($payments as $idx => $loanPayment) {
+            if (isset($schedule[$idx])) {
+                $schedule[$idx]['post_date'] = $loanPayment->payment_date?->format('Y-m-d');
             }
         }
 
@@ -264,6 +306,64 @@ class Loan extends Model
     }
 
     /**
+     * Rebuild loan totals and next payment from remaining loan_payments (e.g. after deleting a repayment transaction).
+     * Mirrors processPayment rules: next due = first schedule date + one month per installment ≥ 90% of scheduled payment.
+     */
+    public function syncDerivedFieldsFromPayments(): void
+    {
+        $this->refresh();
+
+        $principalPaid = (float) $this->payments()->sum('principal_amount');
+        $totalPaid = (float) $this->payments()->sum('payment_amount');
+        $outstanding = max(0, round((float) $this->original_amount - $principalPaid, 2));
+
+        $installment = (float) ($this->installment_amount ?? $this->monthly_payment ?? 0);
+        $payments = $this->payments()->orderBy('payment_date')->orderBy('id')->get();
+        $fullInstallmentCount = $installment > 0.01
+            ? $payments->filter(fn (LoanPayment $p) => (float) $p->payment_amount >= $installment * 0.9)->count()
+            : $payments->count();
+
+        $disbursedAt = $this->fully_disbursed_date
+            ? Carbon::parse($this->fully_disbursed_date)
+            : ($this->disbursements()->exists()
+                ? Carbon::parse($this->disbursements()->max('disbursement_date'))
+                : Carbon::parse($this->origination_date));
+        $firstRepayment = static::firstRepaymentDateFromDisbursedAt($disbursedAt);
+
+        $payoffThreshold = (float) $this->original_amount * (0.50 + 0.16);
+
+        $hasPaidOffDate = Schema::hasColumn($this->getTable(), 'paid_off_date');
+
+        if ($outstanding <= 0.01 || $totalPaid >= $payoffThreshold - 0.01) {
+            $status = 'paid_off';
+            $outstanding = 0.0;
+            $nextPayment = null;
+        } else {
+            $status = $this->status === 'paid_off' ? 'active' : $this->status;
+            if ($status === 'pending' && $this->payments()->exists()) {
+                $status = 'active';
+            }
+            $nextPayment = $firstRepayment->copy()->addMonthsNoOverflow($fullInstallmentCount);
+        }
+
+        $payload = [
+            'outstanding_balance' => $outstanding,
+            'total_paid' => $totalPaid,
+            'next_payment_date' => $nextPayment,
+            'status' => $status,
+        ];
+        if ($hasPaidOffDate) {
+            $payload['paid_off_date'] = ($outstanding <= 0.01 || $totalPaid >= $payoffThreshold - 0.01)
+                ? ($this->getAttribute('paid_off_date') ?: now()->toDateString())
+                : null;
+        }
+
+        $this->forceFill($payload)->save();
+
+        $this->user?->updateOutstandingLoans();
+    }
+
+    /**
      * Get remaining term in months
      */
     public function getRemainingTermAttribute(): int
@@ -273,41 +373,74 @@ class Loan extends Model
     }
 
     /**
-     * Approve loan — sets tier-based installment/maturity values and creates the disbursement transaction.
+     * Set fully_disbursed_date, next_payment_date, and maturity_date from the loan's
+     * disbursements (or origination_date if none). Use after creating a loan with a
+     * disbursement schedule so the maturity date shows before approval.
      */
-    public function approve(int $approverId): void
+    public function updateRepaymentAndMaturityDatesFromDisbursements(): void
+    {
+        $disbursedAt = $this->disbursements()->exists()
+            ? Carbon::parse($this->disbursements()->max('disbursement_date'))
+            : Carbon::parse($this->origination_date);
+
+        $firstRepaymentDate = static::firstRepaymentDateFromDisbursedAt($disbursedAt);
+        $termMonths = (int) $this->term_months;
+        $maturityDate = $termMonths > 0
+            ? $firstRepaymentDate->copy()->addMonthsNoOverflow($termMonths - 1)
+            : null;
+
+        $this->update([
+            'fully_disbursed_date' => $disbursedAt->toDateString(),
+            'next_payment_date' => $firstRepaymentDate,
+            'maturity_date' => $maturityDate,
+        ]);
+    }
+
+    /**
+     * Compute the first repayment date: one full cycle after the first collection due date
+     * on or after the given date (e.g. fully disbursed date). Uses collections_due_day.
+     */
+    public static function firstRepaymentDateFromDisbursedAt(Carbon $disbursedAt): Carbon
+    {
+        $dueDay = Setting::getInt('collections_due_day', 5);
+        $dueDay = max(1, min(28, $dueDay));
+        $firstDueOnOrAfter = $disbursedAt->copy()->day($dueDay)->startOfDay();
+        if ($disbursedAt->greaterThan($firstDueOnOrAfter)) {
+            $firstDueOnOrAfter->addMonthNoOverflow();
+        }
+        return $firstDueOnOrAfter->copy()->addMonthNoOverflow();
+    }
+
+    /**
+     * Approve loan — sets tier-based installment/maturity values.
+     * Disbursement transactions are created by LoanService.
+     *
+     * @param  Carbon|null  $fullyDisbursedAt  When the loan was/will be fully disbursed; repayment starts the cycle after this. If null, uses now().
+     */
+    public function approve(int $approverId, ?Carbon $fullyDisbursedAt = null): void
     {
         if ($this->status !== 'pending') {
             throw new \Exception("Only pending loans can be approved");
         }
 
         $tier = Member::loanTierFor((float) $this->original_amount);
-
-        // Compute first repayment date based on contribution cycles:
-        // - Contributions for a month are due on collections_due_day of the following month.
-        // - First repayment is scheduled one full cycle after the first due date on/after disbursement.
-        $disbursedAt = Carbon::now();
-        $dueDay = Setting::getInt('collections_due_day', 5);
-        $dueDay = max(1, min(28, $dueDay));
-        $firstDueThisMonth = $disbursedAt->copy()->day($dueDay)->startOfDay();
-        if ($disbursedAt->lessThanOrEqualTo($firstDueThisMonth)) {
-            $firstCollectionDue = $firstDueThisMonth;
-        } else {
-            $firstCollectionDue = $firstDueThisMonth->copy()->addMonthNoOverflow();
-        }
-        $firstRepaymentDate = $firstCollectionDue->copy()->addMonthNoOverflow();
+        $disbursedAt = $fullyDisbursedAt ?? Carbon::now();
+        $firstRepaymentDate = static::firstRepaymentDateFromDisbursedAt($disbursedAt);
+        $termMonths = (int) $this->term_months;
+        $maturityDate = $termMonths > 0
+            ? $firstRepaymentDate->copy()->addMonthsNoOverflow($termMonths - 1)
+            : null;
 
         $this->update([
             'status' => 'active',
             'approved_by' => $approverId,
             'approved_at' => now(),
             'next_payment_date' => $firstRepaymentDate,
+            'maturity_date' => $maturityDate,
             'installment_amount' => $tier['installment_amount'] ?? $this->monthly_payment,
             'maturity_fund_balance' => $tier['maturity_balance'] ?? 0,
             'monthly_payment' => $tier['installment_amount'] ?? $this->monthly_payment,
         ]);
-
-        // Transaction creation removed - handled by LoanService to ensure paired entries.
 
         activity()
             ->performedOn($this)

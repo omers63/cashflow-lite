@@ -312,7 +312,7 @@ class TransactionResource extends Resource
                             ->success()
                             ->send();
                     })
-                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && !$record->user_id),
+                    ->visible(fn(Transaction $record) => false),
 
                 Actions\Action::make('clear_assignment')
                     ->label('Clear Assignment')
@@ -334,7 +334,7 @@ class TransactionResource extends Resource
                             ->success()
                             ->send();
                     })
-                    ->visible(fn(Transaction $record) => $record->type === 'external_import' && $record->user_id),
+                    ->visible(fn(Transaction $record) => false),
 
                 Actions\Action::make('reverse')
                     ->icon('heroicon-o-arrow-uturn-left')

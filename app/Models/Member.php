@@ -150,6 +150,11 @@ class Member extends Model
             if ($amount >= $min && $amount <= $max) {
                 $percentage = (float) ($tier['maturity_percentage'] ?? 16);
                 $tier['maturity_balance'] = $amount * ($percentage / 100);
+                $tier['interest_rate'] = (float) ($tier['interest_rate'] ?? 0);
+                // Term = months of installments to cover 50% + 16% of loan amount (payoff rule)
+                $installment = (float) ($tier['installment_amount'] ?? 1);
+                $payoffFraction = 0.50 + 0.16; // 50% + 16% = 66%
+                $tier['term_months'] = max(1, (int) ceil(($payoffFraction * $amount) / $installment));
                 return $tier;
             }
         }
@@ -355,17 +360,42 @@ class Member extends Model
     }
 
     /**
-     * Import funds from a CSV, XLS, or XLSX file (two columns: Transaction Date, Amount, header on row 1).
-     * For each data row, two transactions are posted at the row's date:
-     *   1. external_import (assigned to member) — credits master bank + credits member's bank
-     *   2. contribution — debits member's bank, credits member's fund + master fund
+     * Import contribution rows from a CSV, XLS, or XLSX file.
+     * Two columns only: Transaction Date (A), Amount (B). First row is header.
      *
-     * @param  string  $absolutePath  Absolute filesystem path to the uploaded file.
-     * @param  string  $dateFormat    PHP date format string (e.g. 'Y-m-d', 'd/m/Y') or 'auto' to let Carbon guess.
-     *                                Ignored for Excel cells that already carry a native date type.
      * @return array{imported: int, skipped: int, errors: string[]}
      */
-    public function importFunds(string $absolutePath, string $dateFormat = 'Y-m-d'): array
+    public function importContributions(string $absolutePath, string $dateFormat = 'Y-m-d'): array
+    {
+        return $this->importTabularFunds($absolutePath, $dateFormat, null);
+    }
+
+    /**
+     * Import loan repayment rows for a single active loan (chosen in the UI, not in the file).
+     * Two columns only: Transaction Date (A), Amount (B). First row is header.
+     *
+     * @return array{imported: int, skipped: int, errors: string[]}
+     *
+     * @throws \InvalidArgumentException if the loan is not this member's or not active
+     */
+    public function importLoanRepayments(string $absolutePath, string $dateFormat, Loan $loan): array
+    {
+        if ((int) $loan->member_id !== (int) $this->id) {
+            throw new \InvalidArgumentException('Selected loan does not belong to this member.');
+        }
+        if ($loan->status !== 'active') {
+            throw new \InvalidArgumentException('Only active loans can receive imported repayments.');
+        }
+
+        return $this->importTabularFunds($absolutePath, $dateFormat, $loan);
+    }
+
+    /**
+     * @param  Loan|null  $repaymentTargetLoan  null = contributions only; non-null = every row is a repayment to this loan
+     *
+     * @return array{imported: int, skipped: int, errors: string[]}
+     */
+    private function importTabularFunds(string $absolutePath, string $dateFormat, ?Loan $repaymentTargetLoan): array
     {
         $results = ['imported' => 0, 'skipped' => 0, 'errors' => []];
 
@@ -374,47 +404,47 @@ class Member extends Model
         $highestRow = $sheet->getHighestDataRow();
 
         if ($highestRow <= 1) {
-            return $results; // header only or empty
+            return $results;
         }
 
         $user = $this->user;
 
-        DB::transaction(function () use ($sheet, $highestRow, $user, $dateFormat, &$results): void {
+        DB::transaction(function () use ($sheet, $highestRow, $user, $dateFormat, $repaymentTargetLoan, &$results): void {
             for ($rowNum = 2; $rowNum <= $highestRow; $rowNum++) {
                 $dateCell   = $sheet->getCell("A{$rowNum}");
                 $amountCell = $sheet->getCell("B{$rowNum}");
 
-                // Skip completely empty rows
                 $rawDate   = $dateCell->getValue();
                 $rawAmount = $amountCell->getValue();
                 if ($rawDate === null && $rawAmount === null) {
                     continue;
                 }
 
-                // ── Resolve date ──────────────────────────────────────────────
+                $dateStr = trim((string) $dateCell->getFormattedValue());
                 $txDate = null;
-                if (\PhpOffice\PhpSpreadsheet\Shared\Date::isDateTime($dateCell) && is_numeric($rawDate)) {
-                    // Native Excel date cell — convert serial to Carbon directly
-                    $txDate = \Carbon\Carbon::instance(
-                        \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($rawDate)
-                    );
-                } else {
-                    $dateStr = trim((string) $dateCell->getFormattedValue());
-                    if ($dateStr === '') {
-                        $results['skipped']++;
-                        $results['errors'][] = "Row {$rowNum}: empty date";
-                        continue;
-                    }
+                if ($dateStr !== '') {
                     try {
                         $txDate = self::parseDateFlexible($dateStr, $dateFormat);
                     } catch (\Exception $e) {
-                        $results['skipped']++;
-                        $results['errors'][] = "Row {$rowNum}: cannot parse date '{$dateStr}' with format '{$dateFormat}'";
-                        continue;
+                        // fall through to numeric path
                     }
                 }
+                if ($txDate === null && is_numeric($rawDate)) {
+                    $serial = (float) $rawDate;
+                    if ($serial >= 1 && $serial < 300000 && \PhpOffice\PhpSpreadsheet\Shared\Date::isDateTime($dateCell)) {
+                        $txDate = \Carbon\Carbon::instance(
+                            \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($serial)
+                        );
+                    }
+                }
+                if ($txDate === null) {
+                    $results['skipped']++;
+                    $results['errors'][] = "Row {$rowNum}: cannot parse date '{$dateStr}' (raw: " . (string) $rawDate . ')';
+                    continue;
+                }
 
-                // ── Resolve amount ────────────────────────────────────────────
+                $dateOnly = $txDate->format('Y-m-d');
+
                 $cleanAmount = str_replace(['$', ',', ' '], '', (string) $amountCell->getFormattedValue());
                 $amount = (float) $cleanAmount;
                 if ($amount <= 0) {
@@ -423,70 +453,119 @@ class Member extends Model
                     continue;
                 }
 
-                // Step 1 — credit master bank account (external import)
-                $txExternal = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('EXT-E'),
-                    'transaction_date' => $txDate,
-                    'type' => 'import_deposit',
-                    'debit_or_credit' => 'credit',
-                    'target_account' => 'user_bank',
-                    'amount' => $amount,
-                    'user_id' => $user->id,
-                    'status' => 'pending',
-                    'notes' => 'Bulk Import receipt to bank',
-                    'created_by' => auth()->id(),
-                ]);
-                $txExternal->process();
-
-                $txMaster = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('EXT-M'),
-                    'transaction_date' => $txDate,
-                    'type' => 'external_import',
-                    'debit_or_credit' => 'credit',
-                    'target_account' => 'master_bank',
-                    'amount' => $amount,
-                    'related_transaction_id' => $txExternal->id,
-                    'status' => 'pending',
-                    'notes' => 'Bulk Import Master Bank Credit',
-                    'created_by' => auth()->id(),
-                ]);
-                $txMaster->process();
-
-                // Step 2 — contribution (paired)
-                $contribDebit = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('CTB-D'),
-                    'transaction_date' => $txDate,
-                    'type' => 'debit',
-                    'debit_or_credit' => 'debit',
-                    'target_account' => 'user_bank',
-                    'amount' => $amount,
-                    'user_id' => $user->id,
-                    'status' => 'pending',
-                    'notes' => 'Fund import contribution - Bank Debit',
-                    'created_by' => auth()->id(),
-                ]);
-                $contribDebit->process();
-
-                $contribCredit = Transaction::create([
-                    'transaction_id' => Transaction::generateTransactionId('CTB-C'),
-                    'transaction_date' => $txDate,
-                    'type' => 'contribution',
-                    'debit_or_credit' => 'credit',
-                    'target_account' => 'master_fund',
-                    'amount' => $amount,
-                    'user_id' => $user->id,
-                    'related_transaction_id' => $contribDebit->id,
-                    'status' => 'pending',
-                    'notes' => 'Fund import contribution - Fund Credit',
-                    'created_by' => auth()->id(),
-                ]);
-                $contribCredit->process();
+                if ($repaymentTargetLoan !== null) {
+                    $this->processImportedRepaymentRow($rowNum, $dateOnly, $amount, $user, $repaymentTargetLoan, $results);
+                } else {
+                    $this->processImportedContributionRow($dateOnly, $amount, $user);
+                }
 
                 $results['imported']++;
             }
         });
 
         return $results;
+    }
+
+    /**
+     * @param  array{imported: int, skipped: int, errors: string[]}  $results
+     */
+    private function processImportedRepaymentRow(int $rowNum, string $dateOnly, float $amount, User $user, Loan $loan, array &$results): void
+    {
+        $txMasterCredit = Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('EXT-M'),
+            'transaction_date' => $dateOnly,
+            'type' => 'external_import',
+            'debit_or_credit' => 'credit',
+            'target_account' => 'master_bank',
+            'amount' => $amount,
+            'user_id' => null,
+            'status' => 'pending',
+            'notes' => "Bulk import repayment — {$loan->loan_id} — Master Bank Credit",
+            'created_by' => auth()->id(),
+        ]);
+        $txMasterCredit->process();
+
+        Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('M2U-C'),
+            'transaction_date' => $dateOnly,
+            'type' => 'master_to_user_bank',
+            'debit_or_credit' => 'credit',
+            'target_account' => 'user_bank',
+            'amount' => $amount,
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'notes' => "Bulk import repayment — {$loan->loan_id} — Post to Member Bank",
+            'created_by' => auth()->id(),
+        ])->process();
+
+        $this->refresh();
+        $loan->refresh();
+
+        try {
+            $this->makeRepayment($loan, $dateOnly);
+        } catch (\Exception $e) {
+            $results['errors'][] = "Row {$rowNum}: loan {$loan->loan_id}: " . $e->getMessage();
+        }
+    }
+
+    private function processImportedContributionRow(string $dateOnly, float $amount, User $user): void
+    {
+        $txExternal = Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('EXT-E'),
+            'transaction_date' => $dateOnly,
+            'type' => 'import_deposit',
+            'debit_or_credit' => 'credit',
+            'target_account' => 'user_bank',
+            'amount' => $amount,
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'notes' => 'Bulk import contribution — receipt to bank',
+            'created_by' => auth()->id(),
+        ]);
+        $txExternal->process();
+
+        $txMaster = Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('EXT-M'),
+            'transaction_date' => $dateOnly,
+            'type' => 'external_import',
+            'debit_or_credit' => 'credit',
+            'target_account' => 'master_bank',
+            'amount' => $amount,
+            'related_transaction_id' => $txExternal->id,
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'notes' => 'Bulk import contribution — Master Bank Credit',
+            'created_by' => auth()->id(),
+        ]);
+        $txMaster->process();
+
+        $contribDebit = Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('CTB-D'),
+            'transaction_date' => $dateOnly,
+            'type' => 'debit',
+            'debit_or_credit' => 'debit',
+            'target_account' => 'user_bank',
+            'amount' => $amount,
+            'user_id' => $user->id,
+            'status' => 'pending',
+            'notes' => 'Bulk import contribution — Bank Debit',
+            'created_by' => auth()->id(),
+        ]);
+        $contribDebit->process();
+
+        Transaction::create([
+            'transaction_id' => Transaction::generateTransactionId('CTB-C'),
+            'transaction_date' => $dateOnly,
+            'type' => 'contribution',
+            'debit_or_credit' => 'credit',
+            'target_account' => 'master_fund',
+            'amount' => $amount,
+            'user_id' => $user->id,
+            'related_transaction_id' => $contribDebit->id,
+            'status' => 'pending',
+            'notes' => 'Bulk import contribution — Fund Credit',
+            'created_by' => auth()->id(),
+        ])->process();
     }
 
     /**

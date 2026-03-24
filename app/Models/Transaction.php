@@ -31,7 +31,7 @@ class Transaction extends Model
     ];
 
     protected $casts = [
-        'transaction_date' => 'datetime',
+        'transaction_date' => 'date',
         'amount' => 'decimal:2',
         'approved_at' => 'datetime',
     ];
@@ -85,7 +85,36 @@ class Transaction extends Model
                     ]);
                 }
             }
+
+            $transaction->syncLoanStateAfterDeletion();
         });
+    }
+
+    /**
+     * Keep loan aggregates in sync when a completed loan-related transaction is removed.
+     */
+    protected function syncLoanStateAfterDeletion(): void
+    {
+        if ($this->type === 'loan_repayment' && $this->reference) {
+            $loan = Loan::where('loan_id', $this->reference)->first();
+            if ($loan) {
+                LoanPayment::where('transaction_id', $this->id)->delete();
+                $loan->syncDerivedFieldsFromPayments();
+            }
+
+            return;
+        }
+
+        if ($this->type === 'loan_disbursement' && $this->reference) {
+            $loan = Loan::where('loan_id', $this->reference)->first();
+            if ($loan) {
+                $amount = (float) $this->amount;
+                $loan->refresh();
+                $newOutstanding = max(0, round((float) $loan->outstanding_balance - $amount, 2));
+                $loan->update(['outstanding_balance' => $newOutstanding]);
+                $loan->user?->updateOutstandingLoans();
+            }
+        }
     }
 
     /**
@@ -252,12 +281,16 @@ class Transaction extends Model
                         $loan->update(['status' => 'active', 'origination_date' => $this->transaction_date ?: now()]);
                     }
                 } else {
-                    // Repayment decreases outstanding balance
-                    $loan->decrement('outstanding_balance', $adjustment);
-                    $loan->increment('total_paid', $adjustment);
-                    
-                    if ($loan->outstanding_balance <= 0) {
-                        $loan->update(['status' => 'paid_off']);
+                    // Repayment: settle the loan installment (LoanPayment record, balance, total_paid, next_payment_date, paid_off)
+                    if ($isProcessing) {
+                        $loan->processPayment($this);
+                    } else {
+                        // Reversal: reverse the payment effect (handled by processPayment's logic is in one direction; for reverse we'd need a separate path if we ever reverse loan_repayment)
+                        $loan->decrement('outstanding_balance', $adjustment);
+                        $loan->increment('total_paid', $adjustment);
+                        if ($loan->outstanding_balance <= 0) {
+                            $loan->update(['status' => 'paid_off']);
+                        }
                     }
                 }
             }

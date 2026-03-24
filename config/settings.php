@@ -121,6 +121,8 @@ return [
             'installment_amount' => 1000,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 2',
@@ -129,6 +131,8 @@ return [
             'installment_amount' => 1500,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 3',
@@ -137,6 +141,8 @@ return [
             'installment_amount' => 2000,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 4',
@@ -145,6 +151,8 @@ return [
             'installment_amount' => 2500,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 5',
@@ -153,6 +161,8 @@ return [
             'installment_amount' => 3000,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 6',
@@ -161,6 +171,8 @@ return [
             'installment_amount' => 3500,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 7',
@@ -169,6 +181,8 @@ return [
             'installment_amount' => 4000,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 8',
@@ -177,6 +191,8 @@ return [
             'installment_amount' => 4500,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 9',
@@ -185,6 +201,8 @@ return [
             'installment_amount' => 5000,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
         [
             'name' => 'Tier 10',
@@ -193,6 +211,8 @@ return [
             'installment_amount' => 5500,
             'maturity_percentage' => 16,
             'allocation_percentage' => 10,
+            'term_months' => 12,
+            'interest_rate' => 0,
         ],
     ],
 ];

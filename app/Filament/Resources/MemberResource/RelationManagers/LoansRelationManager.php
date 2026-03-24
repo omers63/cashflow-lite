@@ -70,15 +70,35 @@ class LoansRelationManager extends RelationManager
                     ->color(fn (Loan $record) => $record->isDelinquent() ? 'danger' : null),
             ])
             ->defaultSort('created_at', 'desc')
+            ->selectable(true)
             ->recordActions([
                 Actions\ActionGroup::make([
                     Actions\ViewAction::make()
                         ->label('View')
                         ->tooltip('View')
                         ->url(fn (Loan $record) => LoanResource::getUrl('view', ['record' => $record])),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit')
+                        ->url(fn (Loan $record) => LoanResource::getUrl('edit', ['record' => $record]))
+                        ->authorize(fn () => true),
+                    Actions\Action::make('view_schedule')
+                        ->label('View Schedule')
+                        ->tooltip('View Amortization Schedule')
+                        ->icon('heroicon-o-calendar')
+                        ->modalHeading('Amortization Schedule')
+                        ->modalContent(fn (Loan $record) => view('filament.modals.amortization-schedule', [
+                            'schedule' => $record->generateAmortizationSchedule(),
+                        ]))
+                        ->modalSubmitAction(false),
                 ])
                     ->label('')
                     ->icon('heroicon-o-ellipsis-horizontal'),
+            ])
+            ->toolbarActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
+                ]),
             ])
             ->emptyStateHeading('No loans yet')
             ->emptyStateDescription('This member has not taken any loans.')

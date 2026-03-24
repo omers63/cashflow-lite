@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MemberResource\Pages;
 
 use App\Filament\Resources\MemberResource;
+use App\Models\Loan;
 use App\Models\Member;
 use Filament\Actions;
 use Filament\Forms;
@@ -360,61 +361,100 @@ class ViewMember extends ViewRecord
                         ->send();
                 }),
 
-            Actions\Action::make('import_funds')
+            Actions\Action::make('import_contributions')
                 ->label('')
-                ->tooltip('Import Funds')
-                ->icon('heroicon-o-arrow-down-tray')
+                ->tooltip('Import contributions')
+                ->icon('heroicon-o-banknotes')
                 ->link()
                 ->form([
                     Forms\Components\FileUpload::make('import_file')
-                        ->label('File (CSV / XLS / XLSX)')
-                        ->helperText('Two columns required: Transaction Date, Amount. First row is the header and will be skipped.')
+                        ->label('File (CSV only)')
+                        ->helperText('Two columns only: Transaction Date (A), Amount (B). First row is the header. Save Excel as CSV before importing.')
                         ->required()
-                        ->acceptedFileTypes([
-                            'text/csv',
-                            'text/plain',
-                            'application/csv',
-                            'application/vnd.ms-excel',
-                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                            'application/octet-stream',
-                        ])
+                        ->acceptedFileTypes(['text/csv', 'text/plain', 'application/csv'])
+                        ->rules(['mimes:csv,txt'])
                         ->disk('local')
-                        ->directory('imports/member-funds')
+                        ->directory('imports/member-contributions')
                         ->visibility('private'),
                     Forms\Components\Select::make('date_format')
-                        ->label('Date Format')
+                        ->label('Date format')
                         ->required()
-                        ->options([
-                            'Y-m-d' => 'YYYY-MM-DD  (e.g. 2026-01-15)',
-                            'd/m/Y' => 'DD/MM/YYYY  (e.g. 15/01/2026)',
-                            'm/d/Y' => 'MM/DD/YYYY  (e.g. 01/15/2026)',
-                            'd-m-Y' => 'DD-MM-YYYY  (e.g. 15-01-2026)',
-                            'm-d-Y' => 'MM-DD-YYYY  (e.g. 01-15-2026)',
-                            'd/m/y' => 'DD/MM/YY    (e.g. 15/01/26)',
-                            'm/d/y' => 'MM/DD/YY    (e.g. 01/15/26)',
-                            'auto' => 'Auto-detect',
-                        ])
+                        ->options(MemberResource::memberImportDateFormatOptions())
                         ->default('Y-m-d')
-                        ->helperText('For Excel files with native date cells the format is detected automatically.'),
+                        ->helperText('Must match the date column in your file.'),
                 ])
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $path = $data['import_file'];
                     $absolutePath = \Illuminate\Support\Facades\Storage::disk('local')->path($path);
                     try {
-                        $results = $member->importFunds($absolutePath, $data['date_format'] ?? 'Y-m-d');
+                        $results = $member->importContributions($absolutePath, $data['date_format'] ?? 'Y-m-d');
                         $this->record = $member->fresh();
                         $this->refreshInfolist();
                         $this->dispatch('refreshTransactions');
                         \Illuminate\Support\Facades\Storage::disk('local')->delete($path);
-                        $body = $results['imported'] . ' row(s) imported.'
-                            . ($results['skipped'] > 0 ? ' ' . $results['skipped'] . ' skipped.' : '')
-                            . (count($results['errors']) > 0 ? ' Errors: ' . implode('; ', $results['errors']) : '');
-                        Notification::make()
-                            ->title('Import complete')
-                            ->body($body)
-                            ->success()
-                            ->send();
+                        MemberResource::notifyMemberImportResults('Contributions import complete', $results);
+                    } catch (\Exception $e) {
+                        Notification::make()->title($e->getMessage())->danger()->send();
+                    }
+                }),
+
+            Actions\Action::make('import_loan_repayments')
+                ->label('')
+                ->tooltip('Import loan repayments')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->link()
+                ->form([
+                    Forms\Components\Select::make('loan_id')
+                        ->label('Loan')
+                        ->required()
+                        ->searchable()
+                        ->options(fn (): array => $this->record->loans()
+                            ->where('status', 'active')
+                            ->orderBy('origination_date')
+                            ->orderBy('id')
+                            ->get()
+                            ->mapWithKeys(fn (Loan $l) => [
+                                $l->id => $l->loan_id . ' — outstanding $' . number_format((float) $l->outstanding_balance, 2),
+                            ])
+                            ->all())
+                        ->helperText('The loan is not in the file — pick it here. Every row will post a repayment to this loan.'),
+                    Forms\Components\FileUpload::make('import_file')
+                        ->label('File (CSV only)')
+                        ->helperText('Two columns only: Transaction Date (A), Amount (B). First row is the header.')
+                        ->required()
+                        ->acceptedFileTypes(['text/csv', 'text/plain', 'application/csv'])
+                        ->rules(['mimes:csv,txt'])
+                        ->disk('local')
+                        ->directory('imports/member-repayments')
+                        ->visibility('private'),
+                    Forms\Components\Select::make('date_format')
+                        ->label('Date format')
+                        ->required()
+                        ->options(MemberResource::memberImportDateFormatOptions())
+                        ->default('Y-m-d')
+                        ->helperText('Must match the date column in your file.'),
+                ])
+                ->action(function (array $data): void {
+                    $member = $this->record->fresh();
+                    $loan = Loan::query()
+                        ->whereKey($data['loan_id'])
+                        ->where('member_id', $member->id)
+                        ->first();
+                    if (! $loan) {
+                        Notification::make()->title('Invalid loan')->body('Choose an active loan for this member.')->danger()->send();
+
+                        return;
+                    }
+                    $path = $data['import_file'];
+                    $absolutePath = \Illuminate\Support\Facades\Storage::disk('local')->path($path);
+                    try {
+                        $results = $member->importLoanRepayments($absolutePath, $data['date_format'] ?? 'Y-m-d', $loan);
+                        $this->record = $member->fresh();
+                        $this->refreshInfolist();
+                        $this->dispatch('refreshTransactions');
+                        \Illuminate\Support\Facades\Storage::disk('local')->delete($path);
+                        MemberResource::notifyMemberImportResults("Repayments import complete ({$loan->loan_id})", $results);
                     } catch (\Exception $e) {
                         Notification::make()->title($e->getMessage())->danger()->send();
                     }

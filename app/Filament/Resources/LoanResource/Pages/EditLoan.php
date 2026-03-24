@@ -17,4 +17,9 @@ class EditLoan extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    protected function getRedirectUrl(): string
+    {
+        return LoanResource::getUrl('index');
+    }
 }

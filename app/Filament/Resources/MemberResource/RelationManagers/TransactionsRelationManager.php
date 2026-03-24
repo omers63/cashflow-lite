@@ -41,7 +41,7 @@ class TransactionsRelationManager extends RelationManager
                     ->copyable(),
 
                 Tables\Columns\TextColumn::make('transaction_date')
-                    ->dateTime('M d, Y H:i')
+                    ->date('M d, Y')
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('target_account')
@@ -221,6 +221,7 @@ class TransactionsRelationManager extends RelationManager
                     ->label('')
                     ->icon('heroicon-o-ellipsis-horizontal'),
             ])
+            ->selectable(true)
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
                     Actions\BulkAction::make('unassign_from_user')
@@ -255,6 +256,8 @@ class TransactionsRelationManager extends RelationManager
                                 ->send();
                         })
                         ->deselectRecordsAfterCompletion(),
+                    Actions\DeleteBulkAction::make()
+                        ->authorize(fn () => true),
                 ]),
             ])
             ->paginated([10, 25, 50]);

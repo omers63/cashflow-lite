@@ -27,7 +27,7 @@ class LoanPolicy
 
     public function update(User $user, Loan $loan): bool
     {
-        return $loan->status === 'pending';
+        return true;
     }
 
     public function delete(User $user, Loan $loan): bool

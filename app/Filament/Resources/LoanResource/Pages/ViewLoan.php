@@ -13,6 +13,14 @@ class ViewLoan extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('view_schedule')
+                ->label('View Schedule')
+                ->icon('heroicon-o-calendar')
+                ->modalHeading('Amortization Schedule')
+                ->modalContent(fn () => view('filament.modals.amortization-schedule', [
+                    'schedule' => $this->record->generateAmortizationSchedule(),
+                ]))
+                ->modalSubmitAction(false),
             Actions\EditAction::make()
                 ->label('')
                 ->tooltip('Edit')
