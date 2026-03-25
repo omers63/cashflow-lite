@@ -81,7 +81,7 @@
                         ${{ number_format($summary['outstanding_loans'], 2) }}
                     </p>
                     <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {{ $member->loans()->where('status', 'active')->count() }} active loan(s)
+                        {{ $member->loansQuery()->where('status', 'active')->count() }} active loan(s)
                     </p>
                 </div>
             </div>

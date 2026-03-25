@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\MonthlyCollectionsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -37,5 +38,18 @@ class LoanPayment extends Model
     public function transaction()
     {
         return $this->belongsTo(Transaction::class);
+    }
+
+    /**
+     * @return array{obligation_month: \Carbon\Carbon, obligation_label: string, due_date: \Carbon\Carbon, is_late: bool}|null
+     */
+    public function collectionObligationClassification(): ?array
+    {
+        $txn = $this->transaction;
+        if ($txn === null) {
+            return null;
+        }
+
+        return app(MonthlyCollectionsService::class)->classifyCollectionTransaction($txn);
     }
 }

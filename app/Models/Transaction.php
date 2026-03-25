@@ -73,7 +73,7 @@ class Transaction extends Model
             return null;
         }
 
-        return app(MonthlyCollectionsService::class)->classifyCollectionPayment($this->transaction_date);
+        return app(MonthlyCollectionsService::class)->classifyCollectionTransaction($this);
     }
 
     /** @var array<int, true> IDs of allocation-paired transactions being deleted after their pair was reversed (skip reverse to avoid double-reverse) */

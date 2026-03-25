@@ -99,7 +99,7 @@ class Dashboard extends Page
         $expectedTotal = $expectedContribution + $expectedRepayment;
         $realizedTotal = $realizedContribution + $realizedRepayment;
 
-        $nextLoan = $member->loans()
+        $nextLoan = $member->loansQuery()
             ->where('status', 'active')
             ->whereNotNull('next_payment_date')
             ->orderBy('next_payment_date')
@@ -189,7 +189,7 @@ class Dashboard extends Page
             return [];
         }
 
-        return $member->loans()
+        return $member->loansQuery()
             ->where('status', 'active')
             ->get()
             ->map(fn ($loan) => [
@@ -344,7 +344,7 @@ class Dashboard extends Page
         ];
 
         // Active loan payments
-        $activeLoans = $member->loans()->where('status', 'active')->get();
+        $activeLoans = $member->loansQuery()->where('status', 'active')->get();
         foreach ($activeLoans as $loan) {
             $items[] = [
                 'type' => "Loan {$loan->loan_id}",

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -93,7 +94,48 @@ class Loan extends Model
             ->whereIn('type', ['loan_disbursement', 'loan_repayment']);
     }
 
+    /**
+     * Loans tied to this member by user_id or member_id (handles inconsistent linkage).
+     * Re-reads user_id from the database when missing so lazy/partial Livewire owner models still match.
+     */
+    public static function queryForMember(Member $member): Builder
+    {
+        $memberId = (int) $member->getKey();
+        $userId = $member->getAttribute('user_id');
+        if (($userId === null || $userId === '') && $memberId > 0) {
+            $userId = Member::query()->whereKey($memberId)->value('user_id');
+        }
+        if ($userId !== null && $userId !== '') {
+            $userId = (int) $userId;
+        } else {
+            $userId = null;
+        }
+
+        if ($memberId <= 0 && $userId === null) {
+            return static::query()->whereKey([-1]);
+        }
+
+        return static::query()->where(function (Builder $q) use ($memberId, $userId) {
+            if ($userId !== null) {
+                $q->where('loans.user_id', $userId);
+            }
+            if ($memberId > 0) {
+                $q->orWhere('loans.member_id', $memberId);
+            }
+        });
+    }
+
     // Business Logic
+
+    /**
+     * Monthly collection due day from settings (clamped 1–28), used to align loan repayment dates.
+     */
+    public static function collectionsDueDay(): int
+    {
+        $dueDay = Setting::getInt('collections_due_day', 5);
+
+        return max(1, min(28, $dueDay));
+    }
 
     /**
      * Generate unique loan ID
@@ -174,9 +216,16 @@ class Loan extends Model
             $this->outstanding_balance = 0.0;
             $this->next_payment_date = null;
         } else {
-            // Only move date if we processed at least a full installment
-            if ($paymentAmount >= ($this->installment_amount * 0.9)) {
-                $this->next_payment_date = $this->next_payment_date ? Carbon::parse($this->next_payment_date)->addMonthNoOverflow() : null;
+            $installment = (float) ($this->installment_amount ?? $this->monthly_payment ?? 0);
+            // Only move date if we processed at least a full installment (same rule as syncDerivedFieldsFromPayments)
+            if ($installment > 0.01 && $paymentAmount >= $installment * 0.9) {
+                $dueDay = static::collectionsDueDay();
+                $this->next_payment_date = $this->next_payment_date
+                    ? Carbon::parse($this->next_payment_date)
+                        ->addMonthNoOverflow()
+                        ->day($dueDay)
+                        ->startOfDay()
+                    : null;
             }
         }
 
@@ -209,19 +258,15 @@ class Loan extends Model
         $monthlyRate = (float) $this->interest_rate / 100 / 12;
         $payment = (float) ($this->installment_amount ?? $this->monthly_payment);
 
-        $dueDay = Setting::getInt('collections_due_day', 5);
-        $dueDay = max(1, min(28, $dueDay));
+        $dueDay = static::collectionsDueDay();
 
-        if ($this->next_payment_date) {
-            $paymentDate = Carbon::parse($this->next_payment_date)->day($dueDay)->startOfDay();
-        } else {
-            $disbursedAt = $this->fully_disbursed_date
-                ? Carbon::parse($this->fully_disbursed_date)
-                : ($this->disbursements()->exists()
-                    ? Carbon::parse($this->disbursements()->max('disbursement_date'))
-                    : Carbon::parse($this->origination_date));
-            $paymentDate = static::firstRepaymentDateFromDisbursedAt($disbursedAt)->day($dueDay)->startOfDay();
-        }
+        // Anchor on first installment from disbursement, not next_payment_date (which moves after payments).
+        $disbursedAt = $this->fully_disbursed_date
+            ? Carbon::parse($this->fully_disbursed_date)
+            : ($this->disbursements()->exists()
+                ? Carbon::parse($this->disbursements()->max('disbursement_date'))
+                : Carbon::parse($this->origination_date));
+        $paymentDate = static::firstRepaymentDateFromDisbursedAt($disbursedAt)->day($dueDay)->startOfDay();
 
         for ($i = 1; $i <= $this->term_months; $i++) {
             $interest = round($balance * $monthlyRate, 2);
@@ -344,7 +389,12 @@ class Loan extends Model
             if ($status === 'pending' && $this->payments()->exists()) {
                 $status = 'active';
             }
-            $nextPayment = $firstRepayment->copy()->addMonthsNoOverflow($fullInstallmentCount);
+            $dueDay = static::collectionsDueDay();
+            $nextPayment = $firstRepayment
+                ->copy()
+                ->addMonthsNoOverflow($fullInstallmentCount)
+                ->day($dueDay)
+                ->startOfDay();
         }
 
         $payload = [
@@ -431,8 +481,7 @@ class Loan extends Model
      */
     public static function firstRepaymentDateFromDisbursedAt(Carbon $disbursedAt): Carbon
     {
-        $dueDay = Setting::getInt('collections_due_day', 5);
-        $dueDay = max(1, min(28, $dueDay));
+        $dueDay = static::collectionsDueDay();
         $firstDueOnOrAfter = $disbursedAt->copy()->day($dueDay)->startOfDay();
         if ($disbursedAt->greaterThan($firstDueOnOrAfter)) {
             $firstDueOnOrAfter->addMonthNoOverflow();

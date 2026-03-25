@@ -7,7 +7,6 @@ use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\Loan;
 use Carbon\Carbon;
-use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
 
 class MonthlyCollectionsService
@@ -46,35 +45,112 @@ class MonthlyCollectionsService
     }
 
     /**
-     * Classify a contribution or loan repayment date against the monthly collection cycle.
+     * First calendar month (start of month) that participates in collection-period assignment.
+     * Configured via settings (collections_first_obligation_period, YYYY-MM); default October 2014.
+     */
+    public function getFirstCollectionObligationMonthStart(): Carbon
+    {
+        $raw = Setting::get('collections_first_obligation_period', '2014-10');
+        $raw = is_string($raw) ? trim($raw) : '2014-10';
+        if (preg_match('/^(\d{4})-(\d{2})$/', $raw, $m)) {
+            $y = (int) $m[1];
+            $mon = (int) $m[2];
+            if ($mon >= 1 && $mon <= 12 && $y >= 1900 && $y <= 2100) {
+                return Carbon::create($y, $mon, 1)->startOfDay();
+            }
+        }
+
+        return Carbon::create(2014, 10, 1)->startOfDay();
+    }
+
+    /**
+     * Assign this payment to an obligation month using per-member order:
+     * if the **previous** calendar month (relative to the payment date) has not yet
+     * received any allocated payment, this posting applies there; otherwise it applies
+     * to the **current** calendar month’s window.
      *
-     * Obligation month M (e.g. January) must be satisfied by the due date returned by
-     * getDueDate(year of M, month of M) (e.g. February 5). Payments after that date and on or before
-     * the end of the window count as late for M; payments on or before the due date count as on time.
+     * Example: May 4 → April if April still “open”, else May. Late = after getDueDate(obligation month).
+     *
+     * @param  array<string, true>  $filled  Obligation months (keys Y-m) already assigned a prior posting
+     * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
+     */
+    public function assignObligationForPaymentDate(Carbon $paymentDate, array &$filled): ?array
+    {
+        $p = $paymentDate->copy()->startOfDay();
+        $firstStart = $this->getFirstCollectionObligationMonthStart();
+
+        if ($p->lt($firstStart)) {
+            return null;
+        }
+
+        $currentObligation = $p->copy()->startOfMonth();
+        $previousObligation = $currentObligation->copy()->subMonthNoOverflow();
+
+        $prevKey = $previousObligation->format('Y-m');
+        $currKey = $currentObligation->format('Y-m');
+
+        $previousBeforeFirstPeriod = $previousObligation->copy()->startOfMonth()->lt($firstStart);
+        $previousEffectivelyFilled = isset($filled[$prevKey]) || $previousBeforeFirstPeriod;
+
+        if (! $previousEffectivelyFilled) {
+            $assigned = $previousObligation->copy();
+        } else {
+            $assigned = $currentObligation->copy();
+        }
+
+        if ($assigned->copy()->startOfMonth()->lt($firstStart)) {
+            return null;
+        }
+
+        if (! $previousEffectivelyFilled) {
+            $filled[$prevKey] = true;
+        } else {
+            $filled[$currKey] = true;
+        }
+
+        $due = $this->getDueDate((int) $assigned->year, (int) $assigned->month);
+
+        return [
+            'obligation_month' => $assigned->copy(),
+            'obligation_label' => $assigned->format('F Y'),
+            'due_date' => $due->copy(),
+            'is_late' => $p->greaterThan($due),
+        ];
+    }
+
+    /**
+     * Classify a completed contribution or loan repayment using chronological allocation for its member.
      *
      * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
      */
-    public function classifyCollectionPayment(Carbon|DateTimeInterface|string $paymentDate): ?array
+    public function classifyCollectionTransaction(Transaction $transaction): ?array
     {
-        $p = Carbon::parse($paymentDate)->startOfDay();
-        $start = $p->copy()->subMonths(48)->startOfMonth();
-        $end = $p->copy()->addMonths(18)->startOfMonth();
+        if (! in_array($transaction->type, ['contribution', 'loan_repayment'], true)) {
+            return null;
+        }
 
-        for ($cursor = $start->copy(); $cursor->lte($end); $cursor->addMonthNoOverflow()) {
-            $prev = $cursor->copy()->subMonthNoOverflow();
-            $following = $cursor->copy()->addMonthNoOverflow();
+        $userId = (int) $transaction->user_id;
+        if ($userId <= 0) {
+            return null;
+        }
 
-            $prevDue = $this->getDueDate((int) $prev->year, (int) $prev->month);
-            $windowEnd = $this->getDueDate((int) $following->year, (int) $following->month);
-            $thisDue = $this->getDueDate((int) $cursor->year, (int) $cursor->month);
+        if ($transaction->status !== 'complete') {
+            return null;
+        }
 
-            if ($p->greaterThan($prevDue) && $p->lessThanOrEqualTo($windowEnd)) {
-                return [
-                    'obligation_month' => $cursor->copy(),
-                    'obligation_label' => $cursor->format('F Y'),
-                    'due_date' => $thisDue->copy(),
-                    'is_late' => $p->greaterThan($thisDue),
-                ];
+        $filled = [];
+        $rows = Transaction::query()
+            ->where('user_id', $userId)
+            ->whereIn('type', ['contribution', 'loan_repayment'])
+            ->where('status', 'complete')
+            ->orderBy('transaction_date')
+            ->orderBy('id')
+            ->get(['id', 'transaction_date']);
+
+        foreach ($rows as $row) {
+            $assignment = $this->assignObligationForPaymentDate(Carbon::parse($row->transaction_date), $filled);
+            if ((int) $row->id === (int) $transaction->id) {
+                return $assignment;
             }
         }
 
@@ -82,8 +158,8 @@ class MonthlyCollectionsService
     }
 
     /**
-     * Sum of completed contribution and loan_repayment credit amounts whose transaction date
-     * is classified as late for its collection period (same rules as classifyCollectionPayment).
+     * Sum of completed contribution and loan_repayment credit amounts classified as late
+     * (same sequential assignment rules as classifyCollectionTransaction).
      */
     public function sumLateCollectionAmountForUser(int $userId): float
     {
@@ -92,6 +168,8 @@ class MonthlyCollectionsService
         }
 
         $total = 0.0;
+        $filled = [];
+
         Transaction::query()
             ->where('user_id', $userId)
             ->whereIn('type', ['contribution', 'loan_repayment'])
@@ -99,14 +177,56 @@ class MonthlyCollectionsService
             ->orderBy('transaction_date')
             ->orderBy('id')
             ->cursor()
-            ->each(function (Transaction $transaction) use (&$total): void {
-                $classification = $this->classifyCollectionPayment($transaction->transaction_date);
+            ->each(function (Transaction $transaction) use (&$total, &$filled): void {
+                $classification = $this->assignObligationForPaymentDate(Carbon::parse($transaction->transaction_date), $filled);
                 if ($classification !== null && $classification['is_late']) {
                     $total += (float) $transaction->amount;
                 }
             });
 
         return round($total, 2);
+    }
+
+    /**
+     * Count completed contribution postings classified as late vs on time for the member.
+     * Uses the same sequential assignment as classifyCollectionTransaction (repayments consume slots;
+     * only rows with type contribution increment these counts).
+     *
+     * @return array{late: int, on_time: int}
+     */
+    public function countContributionsByTimingForUser(int $userId): array
+    {
+        if ($userId <= 0) {
+            return ['late' => 0, 'on_time' => 0];
+        }
+
+        $late = 0;
+        $onTime = 0;
+        $filled = [];
+
+        Transaction::query()
+            ->where('user_id', $userId)
+            ->whereIn('type', ['contribution', 'loan_repayment'])
+            ->where('status', 'complete')
+            ->orderBy('transaction_date')
+            ->orderBy('id')
+            ->cursor()
+            ->each(function (Transaction $transaction) use (&$late, &$onTime, &$filled): void {
+                $classification = $this->assignObligationForPaymentDate(Carbon::parse($transaction->transaction_date), $filled);
+                if ($transaction->type !== 'contribution') {
+                    return;
+                }
+                if ($classification === null) {
+                    return;
+                }
+                if ($classification['is_late']) {
+                    $late++;
+                } else {
+                    $onTime++;
+                }
+            });
+
+        return ['late' => $late, 'on_time' => $onTime];
     }
 
     /**
@@ -124,7 +244,7 @@ class MonthlyCollectionsService
         $dueDate = $this->getDueDate($year, $month);
         [$start, $end] = $this->getPeriodStartEnd((int) $dueDate->format('Y'), (int) $dueDate->format('n'));
 
-        $members = Member::with(['user', 'loans'])
+        $members = Member::with(['user'])
             ->whereHas('user', fn ($q) => $q->where('status', 'active'))
             ->get();
 
@@ -134,7 +254,7 @@ class MonthlyCollectionsService
                 continue;
             }
             $expectedContribution = (float) ($member->allowed_allocation ?? Setting::getInt('default_allocation', 500));
-            $expectedRepayment = $member->loans()
+            $expectedRepayment = $member->loansQuery()
                 ->where('status', 'active')
                 ->get()
                 ->sum(fn (Loan $loan) => min(
@@ -291,7 +411,7 @@ class MonthlyCollectionsService
                 }
             }
 
-            $activeLoans = $member->loans()->where('status', 'active')->get();
+            $activeLoans = $member->loansQuery()->where('status', 'active')->get();
             foreach ($activeLoans as $loan) {
                 $installment = min(
                     (float) ($loan->installment_amount ?? $loan->monthly_payment),

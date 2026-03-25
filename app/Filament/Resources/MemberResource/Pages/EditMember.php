@@ -193,7 +193,7 @@ class EditMember extends EditRecord
                 ->link()
                 ->visible(fn() => $member->hasActiveLoan())
                 ->form(function () use ($member) {
-                    $activeLoans = $member->loans()->where('status', 'active')->with('member')->get();
+                    $activeLoans = $member->loansQuery()->where('status', 'active')->with('member')->get();
                     $options = $activeLoans->mapWithKeys(function (\App\Models\Loan $loan) {
                         $installment = (float) ($loan->installment_amount ?? $loan->monthly_payment);
                         $remaining = (float) $loan->outstanding_balance;
@@ -389,7 +389,7 @@ class EditMember extends EditRecord
                         ->label('Loan')
                         ->required()
                         ->searchable()
-                        ->options(fn (): array => $this->record->loans()
+                        ->options(fn (): array => $this->record->loansQuery()
                             ->where('status', 'active')
                             ->orderBy('origination_date')
                             ->orderBy('id')

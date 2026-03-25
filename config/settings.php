@@ -17,9 +17,15 @@ return [
         ],
         'collections_due_day' => [
             'label' => 'Collections due day',
-            'help' => 'Day of the following month when each calendar month’s contribution and loan repayment are due (e.g. 5 = January’s obligation is due February 5). Payments after that date through the next cycle’s upper bound are flagged as late for that obligation month.',
+            'help' => 'Day of the following month when each calendar month’s obligation is due (e.g. 5 = April due May 5). Postings are applied in order: each payment goes to the **prior** calendar month if that month has not yet received a posting; otherwise to the **current** month. **Late** if after the assigned period’s due date.',
             'default' => '5',
             'type' => 'integer',
+        ],
+        'collections_first_obligation_period' => [
+            'label' => 'First collection obligation period',
+            'help' => 'First calendar month that counts as a collection period (YYYY-MM). Obligation months before this are ignored; postings dated before this month’s first day get no collection-period classification.',
+            'default' => '2014-10',
+            'type' => 'string',
         ],
         'max_projection_months' => [
             'label' => 'Max projection months',

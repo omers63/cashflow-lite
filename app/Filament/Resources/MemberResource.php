@@ -155,7 +155,33 @@ class MemberResource extends Resource
                             ->content(fn (?Member $record) => $record
                                 ? '$' . number_format($record->accumulatedLateCollectionsTotal(), 2)
                                 : '—')
-                            ->helperText('Sum of completed contribution and loan repayment amounts posted after each period’s due date (see Settings → Collections due day).')
+                            ->helperText('Uses sequential period assignment (prior month if still open, else current). Sums amounts that are late vs the due date for the assigned period.')
+                            ->visible(fn (?Member $record) => $record !== null),
+
+                        Forms\Components\Placeholder::make('_contribution_on_time_count')
+                            ->label('On-time contributions (count)')
+                            ->content(function (?Member $record) {
+                                if (! $record) {
+                                    return '—';
+                                }
+                                $c = $record->contributionTimingCounts();
+
+                                return (string) ($c['on_time'] ?? 0);
+                            })
+                            ->helperText('Completed contribution credits only; timing uses the same assignment as collection period columns.')
+                            ->visible(fn (?Member $record) => $record !== null),
+
+                        Forms\Components\Placeholder::make('_contribution_late_count')
+                            ->label('Late contributions (count)')
+                            ->content(function (?Member $record) {
+                                if (! $record) {
+                                    return '—';
+                                }
+                                $c = $record->contributionTimingCounts();
+
+                                return (string) ($c['late'] ?? 0);
+                            })
+                            ->helperText('Completed contribution credits classified late for their assigned period.')
                             ->visible(fn (?Member $record) => $record !== null),
                     ])
                     ->columns(2)
@@ -236,6 +262,17 @@ class MemberResource extends Resource
                     ->description('Sum of late contribution + loan repayment amounts')
                     ->color(fn ($state) => (float) $state > 0 ? 'danger' : null)
                     ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\TextColumn::make('contribution_on_time_count')
+                    ->label('On-time contributions')
+                    ->getStateUsing(fn (Member $record) => $record->contributionTimingCounts()['on_time'])
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\TextColumn::make('contribution_late_count')
+                    ->label('Late contributions')
+                    ->getStateUsing(fn (Member $record) => $record->contributionTimingCounts()['late'])
+                    ->color(fn ($state) => (int) $state > 0 ? 'danger' : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('id')
             ->filters([
@@ -313,7 +350,16 @@ class MemberResource extends Resource
                             ->getStateUsing(fn (Member $record) => $record->accumulatedLateCollectionsTotal())
                             ->money('USD')
                             ->color(fn ($state) => (float) $state > 0 ? 'danger' : null)
-                            ->helperText('Completed contribution and loan repayment credits whose dates are after the period due (Collections due day in Settings).'),
+                            ->helperText('Sequential assignment per member; counts completed credits late vs assigned period due (Collections due day in Settings).'),
+                        Infolists\Components\TextEntry::make('contribution_on_time_count')
+                            ->label('On-time contributions')
+                            ->getStateUsing(fn (Member $record) => $record->contributionTimingCounts()['on_time'])
+                            ->helperText('Count of completed contribution credits; repayments still consume period slots in the sequence.'),
+                        Infolists\Components\TextEntry::make('contribution_late_count')
+                            ->label('Late contributions')
+                            ->getStateUsing(fn (Member $record) => $record->contributionTimingCounts()['late'])
+                            ->color(fn ($state) => (int) $state > 0 ? 'danger' : null)
+                            ->helperText('Count of completed contribution credits posted after the assigned period’s due date.'),
                         Infolists\Components\TextEntry::make('available_to_borrow')
                             ->label('Available to Borrow')
                             ->getStateUsing(fn (Member $record) => $record->available_to_borrow)

@@ -41,7 +41,7 @@ class Loans extends Page
             return collect();
         }
 
-        return $member->loans()
+        return $member->loansQuery()
             ->orderByDesc('created_at')
             ->get();
     }
@@ -148,7 +148,7 @@ class Loans extends Page
                     if (!$member) {
                         return [];
                     }
-                    $activeLoans = $member->loans()->where('status', 'active')->get();
+                    $activeLoans = $member->loansQuery()->where('status', 'active')->get();
 
                     if ($activeLoans->isEmpty()) {
                         return [

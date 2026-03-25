@@ -32,9 +32,11 @@ class LoanService
 
         DB::beginTransaction();
         try {
+            $memberId = $user->member?->id;
             $loan = Loan::create([
                 'loan_id' => Loan::generateLoanId(),
                 'user_id' => $user->id,
+                'member_id' => $memberId,
                 'origination_date' => now(),
                 'original_amount' => $amount,
                 'interest_rate' => $interestRate,

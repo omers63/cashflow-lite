@@ -9,6 +9,7 @@ use App\Services\LoanService;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
+use Filament\Resources\Pages\EditRecord;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -17,6 +18,7 @@ use Filament\Schemas\Components;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
+use Livewire\Livewire;
 
 class LoanResource extends Resource
 {
@@ -197,9 +199,21 @@ class LoanResource extends Resource
                             ->live()
                             ->rule(function (Get $get) {
                                 return function (string $attribute, $value, \Closure $fail) use ($get) {
-                                    if (!is_array($value) || count($value) === 0) {
+                                    if (! is_array($value) || count($value) === 0) {
                                         return;
                                     }
+
+                                    // Create + pending edit: schedule parts must equal the loan amount.
+                                    // Active/paid-off/etc.: do not block saves when legacy or partial tranches
+                                    // left the stored schedule sum ≠ original_amount (still fixable in data if needed).
+                                    $livewire = Livewire::current();
+                                    if ($livewire instanceof EditRecord) {
+                                        $record = $livewire->getRecord();
+                                        if ($record instanceof Loan && $record->status !== 'pending') {
+                                            return;
+                                        }
+                                    }
+
                                     $total = 0.0;
                                     foreach ($value as $row) {
                                         $total += (float) ($row['amount'] ?? 0);

@@ -403,7 +403,7 @@ class TransactionResource extends Resource
                     ->columns(2),
 
                 Components\Section::make('Monthly collection timing')
-                    ->description('Contributions and loan repayments use the collections due day (Settings): each calendar month’s obligation is due on that day of the following month. After that date (within the next window), the payment counts as late for that month.')
+                    ->description('Obligation periods start from **First collection obligation period** in Settings (YYYY-MM). Postings before that month’s first day, or outside the program window, show —. Otherwise: in date order, each posting fills the **previous** calendar month if that month has no posting yet; otherwise the **current** month. Late if after that period’s due date (Collections due day).')
                     ->schema([
                         Infolists\Components\TextEntry::make('collection_period')
                             ->label('Collection period')

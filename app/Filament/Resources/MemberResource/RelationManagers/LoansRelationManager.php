@@ -4,18 +4,43 @@ namespace App\Filament\Resources\MemberResource\RelationManagers;
 
 use App\Filament\Resources\LoanResource;
 use App\Models\Loan;
+use App\Models\Member;
 use Filament\Actions;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class LoansRelationManager extends RelationManager
 {
+    /**
+     * Eager-load this manager so ownerRecord is a full Member (lazy embeds can omit attributes like user_id,
+     * which made queryForMember match only member_id and miss loans with null member_id).
+     */
+    protected static bool $isLazy = false;
+
     protected static string $relationship = 'loans';
 
     protected static ?string $title = 'Loans';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-banknotes';
+
+    /**
+     * Apply the member-scoped query here (not only in table()) so it wins over the
+     * relationship query from makeBaseRelationshipTable — otherwise Filament can
+     * resolve rows via member.loans() (user_id-only) and miss loans.
+     */
+    protected function makeTable(): Table
+    {
+        return parent::makeTable()
+            ->query(function (): Builder {
+                $owner = $this->getOwnerRecord();
+
+                return $owner instanceof Member
+                    ? Loan::queryForMember($owner->fresh())
+                    : Loan::query()->whereKey([-1]);
+            });
+    }
 
     public function table(Table $table): Table
     {

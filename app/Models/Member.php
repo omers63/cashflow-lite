@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\MonthlyCollectionsService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,9 @@ use Illuminate\Support\Facades\DB;
 
 class Member extends Model
 {
+    /** @var array{late: int, on_time: int}|null Memo for repeated contributionTimingCounts() in one request */
+    protected ?array $contributionTimingCountsCache = null;
+
     /** Valid allowed_allocation steps: multiples of 500 from 500 to 3000. */
     public const ALLOCATION_OPTIONS = [500, 1000, 1500, 2000, 2500, 3000];
 
@@ -73,6 +77,25 @@ class Member extends Model
         return app(MonthlyCollectionsService::class)->sumLateCollectionAmountForUser((int) $this->user_id);
     }
 
+    /**
+     * @return array{late: int, on_time: int}
+     */
+    public function contributionTimingCounts(): array
+    {
+        if ($this->contributionTimingCountsCache !== null) {
+            return $this->contributionTimingCountsCache;
+        }
+
+        if (! $this->user_id) {
+            return ['late' => 0, 'on_time' => 0];
+        }
+
+        $this->contributionTimingCountsCache = app(MonthlyCollectionsService::class)
+            ->countContributionsByTimingForUser((int) $this->user_id);
+
+        return $this->contributionTimingCountsCache;
+    }
+
     /** A parent member has one or more dependants. */
     public function isParentMember(): bool
     {
@@ -95,15 +118,22 @@ class Member extends Model
 
     // ─── Loans ──────────────────────────────────────────────────────────────────
 
+    /** User-scoped relation; use {@see loansQuery()} for the full member loan list. */
     public function loans(): HasMany
     {
-        return $this->hasMany(Loan::class);
+        return $this->hasMany(Loan::class, 'user_id', 'user_id');
+    }
+
+    /** Loans for this member: same user_id or same member_id (covers inconsistent rows). */
+    public function loansQuery(): Builder
+    {
+        return Loan::queryForMember($this);
     }
 
     /** Whether the member has at least one active (non-paid-off) loan. */
     public function hasActiveLoan(): bool
     {
-        return $this->loans()->where('status', 'active')->exists();
+        return $this->loansQuery()->where('status', 'active')->exists();
     }
 
     /** Membership tenure in years (from membership_date to today). */

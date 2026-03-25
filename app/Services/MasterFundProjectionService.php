@@ -32,7 +32,7 @@ class MasterFundProjectionService
         $collectionsService = app(MonthlyCollectionsService::class);
         [$start, $end] = $collectionsService->getPeriodStartEnd($year, $month);
 
-        $members = Member::with(['user', 'loans'])
+        $members = Member::with(['user'])
             ->whereHas('user', fn ($q) => $q->where('status', 'active'))
             ->get();
 
@@ -44,7 +44,7 @@ class MasterFundProjectionService
                 continue;
             }
             $projectedContributions += (float) ($member->allowed_allocation ?? Setting::getInt('default_allocation', 500));
-            $projectedRepayments += $member->loans()
+            $projectedRepayments += $member->loansQuery()
                 ->where('status', 'active')
                 ->get()
                 ->sum(fn (Loan $loan) => min(

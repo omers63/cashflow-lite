@@ -4,7 +4,7 @@
         <x-filament::section>
             <x-slot name="heading">Period</x-slot>
             <x-slot name="description">
-                Select the obligation month. The due date uses <strong>Collections due day</strong> in Settings (default: 5th of the following month). Actual posts dated after that day are flagged <strong>Late</strong> for that month on member transactions, the transactions list, loan repayments, and the dashboard recent activity table.
+                Select the obligation month. The due date uses <strong>Collections due day</strong> in Settings. Collection periods begin at <strong>First collection obligation period</strong> (YYYY-MM). On member ledgers, each contribution/repayment is applied in date order to the <strong>prior</strong> calendar month if that month has no posting yet, otherwise to the <strong>current</strong> month — then checked <strong>Late</strong> if after that period’s due date.
             </x-slot>
             <div class="flex flex-wrap items-end gap-4">
                 <div class="flex flex-col gap-1">

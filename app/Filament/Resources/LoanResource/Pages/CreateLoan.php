@@ -96,6 +96,18 @@ class CreateLoan extends CreateRecord
     protected function afterCreate(): void
     {
         $loan = $this->record;
+
+        // Keep member_id and user_id aligned (Hidden user_id can be missing if state never synced).
+        if ($loan->member_id && ! $loan->user_id) {
+            $loan->user_id = Member::query()->whereKey($loan->member_id)->value('user_id');
+        }
+        if ($loan->user_id && ! $loan->member_id) {
+            $loan->member_id = Member::query()->where('user_id', $loan->user_id)->value('id');
+        }
+        if ($loan->isDirty()) {
+            $loan->save();
+        }
+
         foreach ($this->pendingDisbursementSchedule as $row) {
             $date = $row['disbursement_date'] ?? null;
             $amount = (float) ($row['amount'] ?? 0);

@@ -4,7 +4,6 @@ namespace App\Filament\Support;
 
 use App\Models\LoanPayment;
 use App\Models\Transaction;
-use App\Services\MonthlyCollectionsService;
 use Filament\Tables;
 
 final class CollectionObligationColumns
@@ -25,7 +24,6 @@ final class CollectionObligationColumns
 
                     return $c['obligation_label'] ?? null;
                 })
-                ->description('Calendar month this payment counts toward')
                 ->placeholder('—')
                 ->toggleable(),
 
@@ -78,18 +76,17 @@ final class CollectionObligationColumns
             Tables\Columns\TextColumn::make('collection_obligation_period')
                 ->label('Collection period')
                 ->getStateUsing(function (LoanPayment $record): ?string {
-                    $c = app(MonthlyCollectionsService::class)->classifyCollectionPayment($record->payment_date);
+                    $c = $record->collectionObligationClassification();
 
                     return $c['obligation_label'] ?? null;
                 })
-                ->description('Repayment vs monthly due cycle')
                 ->placeholder('—')
                 ->toggleable(),
 
             Tables\Columns\TextColumn::make('collection_due_date')
                 ->label('Period due')
                 ->getStateUsing(function (LoanPayment $record): ?string {
-                    $c = app(MonthlyCollectionsService::class)->classifyCollectionPayment($record->payment_date);
+                    $c = $record->collectionObligationClassification();
                     if ($c === null) {
                         return null;
                     }
@@ -103,7 +100,7 @@ final class CollectionObligationColumns
                 ->label('On time / late')
                 ->badge()
                 ->getStateUsing(function (LoanPayment $record): ?string {
-                    $c = app(MonthlyCollectionsService::class)->classifyCollectionPayment($record->payment_date);
+                    $c = $record->collectionObligationClassification();
                     if ($c === null) {
                         return null;
                     }
