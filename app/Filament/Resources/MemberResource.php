@@ -149,6 +149,14 @@ class MemberResource extends Resource
                             ->dehydrated(false)
                             ->formatStateUsing(fn (?Member $record) => $record ? number_format($record->available_to_borrow, 2) : '0.00')
                             ->visible(fn (?Member $record) => $record !== null),
+
+                        Forms\Components\Placeholder::make('_late_collections_total_display')
+                            ->label('Late contributions & repayments (total)')
+                            ->content(fn (?Member $record) => $record
+                                ? '$' . number_format($record->accumulatedLateCollectionsTotal(), 2)
+                                : '—')
+                            ->helperText('Sum of completed contribution and loan repayment amounts posted after each period’s due date (see Settings → Collections due day).')
+                            ->visible(fn (?Member $record) => $record !== null),
                     ])
                     ->columns(2)
                     ->collapsible(),
@@ -220,6 +228,14 @@ class MemberResource extends Resource
                     ->money('USD')
                     ->getStateUsing(fn (Member $record) => $record->available_to_borrow)
                     ->sortable(query: fn ($query, $direction) => $query->orderByRaw("(fund_account_balance - outstanding_loans) {$direction}")),
+
+                Tables\Columns\TextColumn::make('accumulated_late_collections_total')
+                    ->label('Late collections total')
+                    ->money('USD')
+                    ->getStateUsing(fn (Member $record) => $record->accumulatedLateCollectionsTotal())
+                    ->description('Sum of late contribution + loan repayment amounts')
+                    ->color(fn ($state) => (float) $state > 0 ? 'danger' : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('id')
             ->filters([
@@ -292,6 +308,12 @@ class MemberResource extends Resource
                         Infolists\Components\TextEntry::make('outstanding_loans')
                             ->label('Outstanding Loans')
                             ->money('USD'),
+                        Infolists\Components\TextEntry::make('accumulated_late_collections_total')
+                            ->label('Late contributions & repayments (total)')
+                            ->getStateUsing(fn (Member $record) => $record->accumulatedLateCollectionsTotal())
+                            ->money('USD')
+                            ->color(fn ($state) => (float) $state > 0 ? 'danger' : null)
+                            ->helperText('Completed contribution and loan repayment credits whose dates are after the period due (Collections due day in Settings).'),
                         Infolists\Components\TextEntry::make('available_to_borrow')
                             ->label('Available to Borrow')
                             ->getStateUsing(fn (Member $record) => $record->available_to_borrow)

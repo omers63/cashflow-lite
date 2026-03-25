@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TransactionResource\Pages;
+use App\Filament\Support\CollectionObligationColumns;
 use App\Models\Member;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\DB;
@@ -160,6 +161,8 @@ class TransactionResource extends Resource
                 Tables\Columns\TextColumn::make('transaction_date')
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
+
+                ...CollectionObligationColumns::forTransactionRecord(),
 
                 Tables\Columns\TextColumn::make('type')
                     ->badge()
@@ -398,6 +401,43 @@ class TransactionResource extends Resource
                         Infolists\Components\TextEntry::make('reference'),
                     ])
                     ->columns(2),
+
+                Components\Section::make('Monthly collection timing')
+                    ->description('Contributions and loan repayments use the collections due day (Settings): each calendar month’s obligation is due on that day of the following month. After that date (within the next window), the payment counts as late for that month.')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('collection_period')
+                            ->label('Collection period')
+                            ->getStateUsing(function (Transaction $record): string {
+                                $c = $record->collectionObligationClassification();
+
+                                return $c['obligation_label'] ?? '—';
+                            }),
+                        Infolists\Components\TextEntry::make('collection_due')
+                            ->label('Was due by')
+                            ->getStateUsing(function (Transaction $record): string {
+                                $c = $record->collectionObligationClassification();
+
+                                return $c ? $c['due_date']->format('M j, Y') : '—';
+                            }),
+                        Infolists\Components\TextEntry::make('collection_status')
+                            ->label('Timing')
+                            ->badge()
+                            ->getStateUsing(function (Transaction $record): string {
+                                $c = $record->collectionObligationClassification();
+                                if ($c === null) {
+                                    return '—';
+                                }
+
+                                return $c['is_late'] ? 'Late' : 'On time';
+                            })
+                            ->color(fn (string $state): string => match ($state) {
+                                'Late' => 'danger',
+                                'On time' => 'success',
+                                default => 'gray',
+                            }),
+                    ])
+                    ->columns(3)
+                    ->visible(fn (Transaction $record): bool => $record->qualifiesForCollectionObligationTiming()),
 
                 Components\Section::make('User Information')
                     ->schema([

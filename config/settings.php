@@ -17,7 +17,7 @@ return [
         ],
         'collections_due_day' => [
             'label' => 'Collections due day',
-            'help' => 'Day of the month (1–31) when contributions and loan repayments are due (e.g. 5 = 5th of next month).',
+            'help' => 'Day of the following month when each calendar month’s contribution and loan repayment are due (e.g. 5 = January’s obligation is due February 5). Payments after that date through the next cycle’s upper bound are flagged as late for that obligation month.',
             'default' => '5',
             'type' => 'integer',
         ],

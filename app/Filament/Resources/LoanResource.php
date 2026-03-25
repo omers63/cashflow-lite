@@ -59,19 +59,19 @@ class LoanResource extends Resource
 
                         Components\Grid::make(3)
                             ->schema([
-                                Forms\Components\Placeholder::make('_fund_balance_display')
+                                Infolists\Components\TextEntry::make('_fund_balance_display')
                                     ->label('Fund balance')
-                                    ->content(fn(Get $get) => '$' . number_format((float) ($get('_fund_balance') ?? 0), 2)),
-                                Forms\Components\Placeholder::make('_max_loan_display')
+                                    ->state(fn (Get $get) => '$' . number_format((float) ($get('_fund_balance') ?? 0), 2)),
+                                Infolists\Components\TextEntry::make('_max_loan_display')
                                     ->label('Max loan (2× fund)')
-                                    ->content(fn(Get $get) => '$' . number_format((float) ($get('_max_loan') ?? 0), 2)),
-                                Forms\Components\Placeholder::make('_eligibility_errors_display')
+                                    ->state(fn (Get $get) => '$' . number_format((float) ($get('_max_loan') ?? 0), 2)),
+                                Infolists\Components\TextEntry::make('_eligibility_errors_display')
                                     ->label('Eligibility')
-                                    ->content(function (Get $get) {
+                                    ->state(function (Get $get) {
                                         $err = $get('_eligibility_errors');
                                         return $err ?: '✓ Eligible';
                                     })
-                                    ->extraAttributes(fn(Get $get) => $get('_eligibility_errors')
+                                    ->extraAttributes(fn (Get $get) => $get('_eligibility_errors')
                                         ? ['class' => 'text-danger-600 dark:text-danger-400 font-medium']
                                         : ['class' => 'text-success-600 dark:text-success-400 font-medium']),
                             ])
@@ -126,9 +126,9 @@ class LoanResource extends Resource
                                 };
                             }),
 
-                        Forms\Components\Placeholder::make('_tier_summary')
+                        Infolists\Components\TextEntry::make('_tier_summary')
                             ->label('Tier terms')
-                            ->content(function (Get $get) {
+                            ->state(function (Get $get) {
                                 $amount = (float) ($get('original_amount') ?? 0);
                                 if ($amount <= 0) {
                                     return 'Enter an amount between $1,000 and $300,000.';
@@ -140,11 +140,11 @@ class LoanResource extends Resource
                                 $pct = (float) ($tier['maturity_percentage'] ?? 16);
                                 return 'Installment: $' . number_format($tier['installment_amount']) . ' / month · Maturity target: ' . $pct . '% ($' . number_format($tier['maturity_balance']) . ')';
                             })
-                            ->visible(fn(Get $get) => (float) ($get('original_amount') ?? 0) > 0),
+                            ->visible(fn (Get $get) => (float) ($get('original_amount') ?? 0) > 0),
 
-                        Forms\Components\Placeholder::make('_term_display')
+                        Infolists\Components\TextEntry::make('_term_display')
                             ->label('Loan term (months)')
-                            ->content(function (Get $get) {
+                            ->state(function (Get $get) {
                                 $amount = (float) ($get('original_amount') ?? 0);
                                 if ($amount <= 0) {
                                     return '—';
@@ -156,7 +156,7 @@ class LoanResource extends Resource
                                 return (string) ($tier['term_months'] ?? '—');
                             })
                             ->helperText('Auto-calculated: number of installments to cover 50% + 16% of the loan amount (payoff rule).')
-                            ->visible(fn(Get $get) => (float) ($get('original_amount') ?? 0) > 0),
+                            ->visible(fn (Get $get) => (float) ($get('original_amount') ?? 0) > 0),
 
                         Forms\Components\Hidden::make('term_months')->default(12)->dehydrated(),
                         Forms\Components\Hidden::make('interest_rate')->default(0)->dehydrated(),
@@ -533,6 +533,7 @@ class LoanResource extends Resource
     public static function getRelations(): array
     {
         return [
+            \App\Filament\Resources\LoanResource\RelationManagers\LoanPaymentsRelationManager::class,
             \App\Filament\Resources\LoanResource\RelationManagers\TransactionsRelationManager::class,
         ];
     }

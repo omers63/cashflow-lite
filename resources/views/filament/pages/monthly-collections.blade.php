@@ -3,7 +3,9 @@
         {{-- Period selector --}}
         <x-filament::section>
             <x-slot name="heading">Period</x-slot>
-            <x-slot name="description">Select the collection month. Contributions and loan repayments are due on the 5th of the following month.</x-slot>
+            <x-slot name="description">
+                Select the obligation month. The due date uses <strong>Collections due day</strong> in Settings (default: 5th of the following month). Actual posts dated after that day are flagged <strong>Late</strong> for that month on member transactions, the transactions list, loan repayments, and the dashboard recent activity table.
+            </x-slot>
             <div class="flex flex-wrap items-end gap-4">
                 <div class="flex flex-col gap-1">
                     <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Month</label>
@@ -35,7 +37,7 @@
 
         {{-- Stats --}}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <x-filament::section class="!p-4">
+            <x-filament::section class="p-4!">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-danger-500/10 text-danger-600 dark:text-danger-400">
                         <x-filament::icon icon="heroicon-o-banknotes" class="w-6 h-6" />
@@ -47,7 +49,7 @@
                     </div>
                 </div>
             </x-filament::section>
-            <x-filament::section class="!p-4">
+            <x-filament::section class="p-4!">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-warning-500/10 text-warning-600 dark:text-warning-400">
                         <x-filament::icon icon="heroicon-o-user-group" class="w-6 h-6" />
@@ -59,7 +61,7 @@
                     </div>
                 </div>
             </x-filament::section>
-            <x-filament::section class="!p-4">
+            <x-filament::section class="p-4!">
                 <div class="flex items-center gap-3">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600 dark:text-primary-400">
                         <x-filament::icon icon="heroicon-o-calendar-days" class="w-6 h-6" />

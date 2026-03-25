@@ -3,16 +3,27 @@
 namespace App\Filament\Resources\LoanResource\Pages;
 
 use App\Filament\Resources\LoanResource;
+use App\Filament\Resources\LoanResource\Concerns\PostsLoanMoneyHeaderActions;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
 
 class ViewLoan extends ViewRecord
 {
+    use PostsLoanMoneyHeaderActions;
+
     protected static string $resource = LoanResource::class;
+
+    protected function refreshAfterLoanMoneyAction(): void
+    {
+        $this->record = $this->record->fresh();
+        $this->refreshInfolist();
+    }
 
     protected function getHeaderActions(): array
     {
-        return [
+        return array_merge(
+            $this->postsLoanMoneyHeaderActions(),
+            [
             Actions\Action::make('view_schedule')
                 ->label('View Schedule')
                 ->icon('heroicon-o-calendar')
@@ -26,6 +37,7 @@ class ViewLoan extends ViewRecord
                 ->tooltip('Edit')
                 ->icon('heroicon-o-pencil-square')
                 ->link(),
-        ];
+            ]
+        );
     }
 }

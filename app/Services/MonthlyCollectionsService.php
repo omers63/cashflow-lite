@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\Loan;
 use Carbon\Carbon;
+use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
 
 class MonthlyCollectionsService
@@ -42,6 +43,70 @@ class MonthlyCollectionsService
         $next = Carbon::create($year, $month, 1)->addMonth();
 
         return $next->setDay($this->getDueDay())->startOfDay();
+    }
+
+    /**
+     * Classify a contribution or loan repayment date against the monthly collection cycle.
+     *
+     * Obligation month M (e.g. January) must be satisfied by the due date returned by
+     * getDueDate(year of M, month of M) (e.g. February 5). Payments after that date and on or before
+     * the end of the window count as late for M; payments on or before the due date count as on time.
+     *
+     * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
+     */
+    public function classifyCollectionPayment(Carbon|DateTimeInterface|string $paymentDate): ?array
+    {
+        $p = Carbon::parse($paymentDate)->startOfDay();
+        $start = $p->copy()->subMonths(48)->startOfMonth();
+        $end = $p->copy()->addMonths(18)->startOfMonth();
+
+        for ($cursor = $start->copy(); $cursor->lte($end); $cursor->addMonthNoOverflow()) {
+            $prev = $cursor->copy()->subMonthNoOverflow();
+            $following = $cursor->copy()->addMonthNoOverflow();
+
+            $prevDue = $this->getDueDate((int) $prev->year, (int) $prev->month);
+            $windowEnd = $this->getDueDate((int) $following->year, (int) $following->month);
+            $thisDue = $this->getDueDate((int) $cursor->year, (int) $cursor->month);
+
+            if ($p->greaterThan($prevDue) && $p->lessThanOrEqualTo($windowEnd)) {
+                return [
+                    'obligation_month' => $cursor->copy(),
+                    'obligation_label' => $cursor->format('F Y'),
+                    'due_date' => $thisDue->copy(),
+                    'is_late' => $p->greaterThan($thisDue),
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Sum of completed contribution and loan_repayment credit amounts whose transaction date
+     * is classified as late for its collection period (same rules as classifyCollectionPayment).
+     */
+    public function sumLateCollectionAmountForUser(int $userId): float
+    {
+        if ($userId <= 0) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+        Transaction::query()
+            ->where('user_id', $userId)
+            ->whereIn('type', ['contribution', 'loan_repayment'])
+            ->where('status', 'complete')
+            ->orderBy('transaction_date')
+            ->orderBy('id')
+            ->cursor()
+            ->each(function (Transaction $transaction) use (&$total): void {
+                $classification = $this->classifyCollectionPayment($transaction->transaction_date);
+                if ($classification !== null && $classification['is_late']) {
+                    $total += (float) $transaction->amount;
+                }
+            });
+
+        return round($total, 2);
     }
 
     /**

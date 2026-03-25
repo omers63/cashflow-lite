@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Support\CollectionObligationColumns;
 use App\Models\Transaction;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -36,6 +37,9 @@ class RecentTransactions extends BaseWidget
                         default => 'secondary',
                     })
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
+
+                ...CollectionObligationColumns::forTransactionRecord(),
+
                 Tables\Columns\TextColumn::make('amount')
                     ->money('USD'),
                 Tables\Columns\TextColumn::make('user.name')

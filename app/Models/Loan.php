@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 use App\Models\Setting;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -361,6 +362,34 @@ class Loan extends Model
         $this->forceFill($payload)->save();
 
         $this->user?->updateOutstandingLoans();
+    }
+
+    /**
+     * Delete all loan payment rows and recompute outstanding, total paid, next due, and status.
+     * Does not remove ledger transactions — adjust those separately if books must match.
+     */
+    public function resetPaymentHistory(): void
+    {
+        DB::transaction(function (): void {
+            $this->payments()->delete();
+            $this->refresh();
+            $this->syncDerivedFieldsFromPayments();
+        });
+    }
+
+    /**
+     * Delete all planned disbursement rows and recompute fully disbursed / first repayment / maturity from origination.
+     * Does not reverse posted disbursement transactions.
+     */
+    public function clearPlannedDisbursements(): void
+    {
+        DB::transaction(function (): void {
+            $this->disbursements()->delete();
+            $this->refresh();
+            $this->updateRepaymentAndMaturityDatesFromDisbursements();
+            $this->refresh();
+            $this->syncDerivedFieldsFromPayments();
+        });
     }
 
     /**

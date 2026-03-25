@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\MonthlyCollectionsService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -55,6 +57,23 @@ class Transaction extends Model
     public function loanPayment()
     {
         return $this->hasOne(LoanPayment::class);
+    }
+
+    public function qualifiesForCollectionObligationTiming(): bool
+    {
+        return in_array($this->type, ['contribution', 'loan_repayment'], true);
+    }
+
+    /**
+     * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
+     */
+    public function collectionObligationClassification(): ?array
+    {
+        if (! $this->qualifiesForCollectionObligationTiming()) {
+            return null;
+        }
+
+        return app(MonthlyCollectionsService::class)->classifyCollectionPayment($this->transaction_date);
     }
 
     /** @var array<int, true> IDs of allocation-paired transactions being deleted after their pair was reversed (skip reverse to avoid double-reverse) */

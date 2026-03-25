@@ -165,22 +165,26 @@ class LoanService
 
     /**
      * Process a loan payment (Paired: Debit User Bank, Credit Master Fund)
+     *
+     * @param  \Carbon\Carbon|string|null  $transactionDate  Defaults to today
      */
-    public function processPayment(Loan $loan, float $amount, ?string $notes = null): Transaction
+    public function processPayment(Loan $loan, float $amount, ?string $notes = null, Carbon|string|null $transactionDate = null): Transaction
     {
         if ($loan->status !== 'active') {
             throw new \Exception("Can only make payments on active loans");
         }
 
-        if (!$loan->user->hasSufficientBankBalance($amount)) {
+        if (! $loan->user->hasSufficientBankBalance($amount)) {
             throw new \Exception("Insufficient bank account balance");
         }
 
-        return DB::transaction(function () use ($loan, $amount, $notes) {
-            // 1. Debit User Bank
+        $date = $transactionDate ? Carbon::parse($transactionDate)->startOfDay() : now()->startOfDay();
+        $dateOnly = $date->toDateString();
+
+        return DB::transaction(function () use ($loan, $amount, $notes, $dateOnly) {
             $debit = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('LNP-D'),
-                'transaction_date' => now(),
+                'transaction_date' => $dateOnly,
                 'type' => 'debit',
                 'debit_or_credit' => 'debit',
                 'target_account' => 'user_bank',
@@ -193,10 +197,9 @@ class LoanService
             ]);
             $debit->process();
 
-            // 2. Credit Master Fund
             $credit = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('LNP-C'),
-                'transaction_date' => now(),
+                'transaction_date' => $dateOnly,
                 'type' => 'loan_repayment',
                 'debit_or_credit' => 'credit',
                 'target_account' => 'master_fund',
@@ -209,6 +212,75 @@ class LoanService
                 'created_by' => auth()->id(),
             ]);
             $credit->process();
+
+            return $credit->fresh();
+        });
+    }
+
+    /**
+     * Post an extra disbursement for an already-active loan (fund debit + member bank credit).
+     * Creates a disbursement row and refreshes repayment dates from the schedule.
+     */
+    public function postAdditionalDisbursement(Loan $loan, float $amount, Carbon|string $transactionDate, ?string $notes = null): Transaction
+    {
+        if ($loan->status !== 'active') {
+            throw new \Exception('Additional disbursements can only be posted for active loans.');
+        }
+        if ($amount <= 0) {
+            throw new \Exception('Amount must be greater than zero.');
+        }
+
+        $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
+        if (! $masterFund || (float) $masterFund->balance < $amount) {
+            throw new \Exception('Insufficient master fund balance');
+        }
+
+        $date = Carbon::parse($transactionDate)->startOfDay();
+        $dateOnly = $date->toDateString();
+
+        return DB::transaction(function () use ($loan, $amount, $dateOnly, $notes) {
+            $debit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LND-D'),
+                'transaction_date' => $dateOnly,
+                'type' => 'debit',
+                'debit_or_credit' => 'debit',
+                'target_account' => 'master_fund',
+                'amount' => $amount,
+                'user_id' => $loan->user_id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => $notes ?? "Additional loan disbursement debit from fund: {$loan->loan_id}",
+                'created_by' => auth()->id(),
+            ]);
+            $debit->process();
+
+            $credit = Transaction::create([
+                'transaction_id' => Transaction::generateTransactionId('LND-C'),
+                'transaction_date' => $dateOnly,
+                'type' => 'loan_disbursement',
+                'debit_or_credit' => 'credit',
+                'target_account' => 'user_bank',
+                'amount' => $amount,
+                'user_id' => $loan->user_id,
+                'related_transaction_id' => $debit->id,
+                'reference' => $loan->loan_id,
+                'status' => 'pending',
+                'notes' => $notes ?? "Additional loan disbursement credit to bank: {$loan->loan_id}",
+                'created_by' => auth()->id(),
+            ]);
+            $credit->process();
+
+            LoanDisbursement::create([
+                'loan_id' => $loan->id,
+                'disbursement_date' => $dateOnly,
+                'amount' => $amount,
+                'fund_debit_transaction_id' => $debit->id,
+                'user_credit_transaction_id' => $credit->id,
+            ]);
+
+            $loan->refresh();
+            $loan->update(['fully_disbursed_date' => $loan->disbursements()->max('disbursement_date')]);
+            $loan->updateRepaymentAndMaturityDatesFromDisbursements();
 
             return $credit->fresh();
         });

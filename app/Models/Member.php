@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\MonthlyCollectionsService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -57,6 +58,19 @@ class Member extends Model
     public function transactions(): HasManyThrough
     {
         return $this->hasManyThrough(Transaction::class, User::class, 'id', 'user_id', 'user_id', 'id');
+    }
+
+    /**
+     * Total dollar amount of completed contributions and loan repayments (ledger credits)
+     * that fall in a late collection period for this member.
+     */
+    public function accumulatedLateCollectionsTotal(): float
+    {
+        if (! $this->user_id) {
+            return 0.0;
+        }
+
+        return app(MonthlyCollectionsService::class)->sumLateCollectionAmountForUser((int) $this->user_id);
     }
 
     /** A parent member has one or more dependants. */

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MemberResource\RelationManagers;
 
 use App\Filament\Resources\TransactionResource;
+use App\Filament\Support\CollectionObligationColumns;
 use App\Models\Transaction;
 use Filament\Actions;
 use Filament\Forms;
@@ -43,6 +44,8 @@ class TransactionsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('transaction_date')
                     ->date('M d, Y')
                     ->sortable(),
+
+                ...CollectionObligationColumns::forTransactionRecord(),
 
                 Tables\Columns\TextColumn::make('target_account')
                     ->searchable()
