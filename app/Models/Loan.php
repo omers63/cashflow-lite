@@ -2,14 +2,13 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Carbon\Carbon;
-use App\Models\Setting;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -97,6 +96,8 @@ class Loan extends Model
     /**
      * Loans tied to this member by user_id or member_id (handles inconsistent linkage).
      * Re-reads user_id from the database when missing so lazy/partial Livewire owner models still match.
+     *
+     * @return Builder<Loan>
      */
     public static function queryForMember(Member $member): Builder
     {
@@ -168,8 +169,8 @@ class Loan extends Model
         }
 
         $monthlyRate = $annualRate / 100 / 12;
-        $payment = $loanAmount * 
-            ($monthlyRate * pow(1 + $monthlyRate, $termMonths)) / 
+        $payment = $loanAmount *
+            ($monthlyRate * pow(1 + $monthlyRate, $termMonths)) /
             (pow(1 + $monthlyRate, $termMonths) - 1);
 
         return round($payment, 2);
@@ -181,6 +182,7 @@ class Loan extends Model
     public function calculateInterest(): float
     {
         $monthlyRate = $this->interest_rate / 100 / 12;
+
         return round($this->outstanding_balance * $monthlyRate, 2);
     }
 
@@ -318,7 +320,7 @@ class Loan extends Model
      */
     public function getDaysOverdueAttribute(): int
     {
-        if (!$this->isDelinquent()) {
+        if (! $this->isDelinquent()) {
             return 0;
         }
 
@@ -348,6 +350,7 @@ class Loan extends Model
     public function recomputeOutstandingBalanceFromPayments(): float
     {
         $principalPaid = (float) $this->payments()->sum('principal_amount');
+
         return max(0, (float) $this->original_amount - $principalPaid);
     }
 
@@ -448,6 +451,7 @@ class Loan extends Model
     public function getRemainingTermAttribute(): int
     {
         $paymentsMade = $this->payments()->count();
+
         return max(0, $this->term_months - $paymentsMade);
     }
 
@@ -486,6 +490,7 @@ class Loan extends Model
         if ($disbursedAt->greaterThan($firstDueOnOrAfter)) {
             $firstDueOnOrAfter->addMonthNoOverflow();
         }
+
         return $firstDueOnOrAfter->copy()->addMonthNoOverflow();
     }
 
@@ -498,7 +503,7 @@ class Loan extends Model
     public function approve(int $approverId, ?Carbon $fullyDisbursedAt = null): void
     {
         if ($this->status !== 'pending') {
-            throw new \Exception("Only pending loans can be approved");
+            throw new \Exception('Only pending loans can be approved');
         }
 
         $tier = Member::loanTierFor((float) $this->original_amount);
@@ -538,6 +543,7 @@ class Loan extends Model
             return (float) $this->outstanding_balance <= 0.01;
         }
         $target = (float) ($this->maturity_fund_balance ?? 0);
+
         return (float) $this->member->fund_account_balance >= $target;
     }
 
@@ -547,6 +553,7 @@ class Loan extends Model
         if (! $this->member_id) {
             return true;
         }
+
         return static::where('member_id', $this->member_id)
             ->where('id', '!=', $this->id)
             ->doesntExist();

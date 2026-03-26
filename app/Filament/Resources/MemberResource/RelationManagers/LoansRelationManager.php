@@ -10,6 +10,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class LoansRelationManager extends RelationManager
 {
@@ -21,25 +22,27 @@ class LoansRelationManager extends RelationManager
 
     protected static string $relationship = 'loans';
 
+    protected static ?string $relatedResource = LoanResource::class;
+
     protected static ?string $title = 'Loans';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-banknotes';
 
     /**
-     * Apply the member-scoped query here (not only in table()) so it wins over the
-     * relationship query from makeBaseRelationshipTable — otherwise Filament can
-     * resolve rows via member.loans() (user_id-only) and miss loans.
+     * Filament's base table uses this for the root query. Returning a non-null builder
+     * overrides the relationship query (member.loans() is user_id-only and misses rows).
+     * Do not override makeTable()->query() — that can run before $this->table is set and
+     * trigger getAuthorizationResponse() → getTable() during boot.
      */
-    protected function makeTable(): Table
+    protected function getTableQuery(): Builder|Relation|null
     {
-        return parent::makeTable()
-            ->query(function (): Builder {
-                $owner = $this->getOwnerRecord();
+        $owner = $this->getOwnerRecord();
 
-                return $owner instanceof Member
-                    ? Loan::queryForMember($owner->fresh())
-                    : Loan::query()->whereKey([-1]);
-            });
+        if (! $owner instanceof Member) {
+            return Loan::query()->whereKey([-1]);
+        }
+
+        return Loan::queryForMember($owner->fresh());
     }
 
     public function table(Table $table): Table
@@ -130,4 +133,3 @@ class LoansRelationManager extends RelationManager
             ->emptyStateIcon('heroicon-o-banknotes');
     }
 }
-

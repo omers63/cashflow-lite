@@ -2,8 +2,11 @@
 
 namespace App\Filament\Resources\MasterAccountResource\RelationManagers;
 
+use App\Filament\Resources\TransactionResource;
+use App\Filament\Support\TransactionDeleteActionConfigurator;
 use App\Models\Member;
 use App\Models\Transaction;
+use App\Services\TransactionService;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -17,6 +20,12 @@ use Livewire\Attributes\On;
 class TransactionsRelationManager extends RelationManager
 {
     protected static string $relationship = 'transactions';
+
+    /**
+     * Required so Filament authorizes without calling getTable() while the table property
+     * is still uninitialized (InteractsWithRelationshipTable::getAuthorizationResponse).
+     */
+    protected static ?string $relatedResource = TransactionResource::class;
 
     protected static ?string $title = 'Transactions';
 
@@ -45,7 +54,7 @@ class TransactionsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('target_account')
                     ->badge()
                     ->color('info')
-                    ->formatStateUsing(fn(string $state) => str_replace('_', ' ', ucfirst($state))),
+                    ->formatStateUsing(fn (string $state) => str_replace('_', ' ', ucfirst($state))),
 
                 Tables\Columns\TextColumn::make('type')
                     ->badge()
@@ -58,17 +67,18 @@ class TransactionsRelationManager extends RelationManager
                         'secondary' => 'adjustment',
                         'gray' => ['debit', 'credit'],
                     ])
-                    ->formatStateUsing(fn(?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
+                    ->formatStateUsing(fn (?string $state) => $state ? str_replace('_', ' ', ucfirst($state)) : ''),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->getStateUsing(function (Transaction $record): float {
-                         $amount = (float) $record->amount;
-                         return $record->isCredit() ? $amount : -$amount;
+                        $amount = (float) $record->amount;
+
+                        return $record->isCredit() ? $amount : -$amount;
                     })
                     ->formatStateUsing(function ($state): string {
-                        return (float)$state >= 0
-                            ? '$' . number_format((float)$state, 2)
-                            : '-$' . number_format(abs((float)$state), 2);
+                        return (float) $state >= 0
+                            ? '$'.number_format((float) $state, 2)
+                            : '-$'.number_format(abs((float) $state), 2);
                     })
                     ->color(fn ($state): ?string => $state < 0 ? 'danger' : 'success')
                     ->sortable(query: fn ($query, string $direction) => $query->orderBy('amount', $direction))
@@ -78,13 +88,15 @@ class TransactionsRelationManager extends RelationManager
                             ->query(fn ($q) => $q)
                             ->using(function (string $attribute, $query) {
                                 $records = $query->get();
+
                                 return $records->sum(function ($row) {
                                     $amount = (float) $row->amount;
                                     $isCredit = ($row->debit_or_credit ?? 'credit') === 'credit';
+
                                     return $isCredit ? $amount : -$amount;
                                 });
                             })
-                            ->formatStateUsing(fn ($state): string => ($state >= 0 ? '' : '-') . '$' . number_format(abs((float) $state), 2)),
+                            ->formatStateUsing(fn ($state): string => ($state >= 0 ? '' : '-').'$'.number_format(abs((float) $state), 2)),
                     ]),
 
                 Tables\Columns\TextColumn::make('user.name')
@@ -149,8 +161,8 @@ class TransactionsRelationManager extends RelationManager
                     ])
                     ->query(function ($query, array $data) {
                         return $query
-                            ->when($data['from'], fn($q, $date) => $q->whereDate('transaction_date', '>=', $date))
-                            ->when($data['to'], fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
+                            ->when($data['from'], fn ($q, $date) => $q->whereDate('transaction_date', '>=', $date))
+                            ->when($data['to'], fn ($q, $date) => $q->whereDate('transaction_date', '<=', $date));
                     }),
             ])
             ->recordActions([
@@ -159,74 +171,96 @@ class TransactionsRelationManager extends RelationManager
                         ->label('Post To Member')
                         ->tooltip('Post To Member')
                         ->icon('heroicon-o-user-plus')
-                    ->schema([
-                        Forms\Components\Select::make('member_id')
-                            ->label('Member')
-                            ->options(
-                                fn () => Member::with('user')
-                                    ->get()
-                                    ->mapWithKeys(fn (Member $m) => [
-                                        $m->id => $m->user
-                                            ? "{$m->user->name} ({$m->user->user_code})"
-                                            : "Member #{$m->id}",
-                                    ])
-                            )
-                            ->searchable()
-                            ->required(),
-                    ])
+                        ->schema([
+                            Forms\Components\Select::make('member_id')
+                                ->label('Member')
+                                ->options(
+                                    fn () => Member::with('user')
+                                        ->get()
+                                        ->mapWithKeys(fn (Member $m) => [
+                                            $m->id => $m->user
+                                                ? "{$m->user->name} ({$m->user->user_code})"
+                                                : "Member #{$m->id}",
+                                        ])
+                                )
+                                ->searchable()
+                                ->required(),
+                        ])
                         ->action(function (Transaction $record, array $data): void {
-                            DB::transaction(function () use ($record, $data): void {
-                                $member = Member::find($data['member_id']);
-                                if ($member) {
-                                    $member->creditBankAccount((float) $record->amount);
-                                    $record->update(['user_id' => $member->user_id]);
-                                }
-                            });
-    
+                            $member = Member::find($data['member_id']);
+                            if (! $member) {
+                                return;
+                            }
+
+                            try {
+                                app(TransactionService::class)->postExternalImportToMember($record, $member);
+                            } catch (\Throwable $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Could not post to member')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
                             \Filament\Notifications\Notification::make()
                                 ->title('Assigned to member')
+                                ->body('Member bank credit transaction created and master import marked to member.')
                                 ->success()
                                 ->send();
                         })
                         ->visible(fn (Transaction $record): bool => $this->getOwnerRecord()->account_type === 'master_bank'
                             && $record->type === 'external_import'
                             && ! $record->user_id),
-    
+
                     Actions\Action::make('reassign_user')
                         ->label('Reassign to Member')
                         ->tooltip('Reassign to Member')
                         ->icon('heroicon-o-arrow-path')
-                    ->schema([
-                        Forms\Components\Select::make('member_id')
-                            ->label('Member')
-                            ->options(
-                                fn () => Member::with('user')
-                                    ->get()
-                                    ->mapWithKeys(fn (Member $m) => [
-                                        $m->id => $m->user
-                                            ? "{$m->user->name} ({$m->user->user_code})"
-                                            : "Member #{$m->id}",
-                                    ])
-                            )
-                            ->searchable()
-                            ->required()
-                            ->default(fn (Transaction $record) => $record->user?->member?->id),
-                    ])
+                        ->schema([
+                            Forms\Components\Select::make('member_id')
+                                ->label('Member')
+                                ->options(
+                                    fn () => Member::with('user')
+                                        ->get()
+                                        ->mapWithKeys(fn (Member $m) => [
+                                            $m->id => $m->user
+                                                ? "{$m->user->name} ({$m->user->user_code})"
+                                                : "Member #{$m->id}",
+                                        ])
+                                )
+                                ->searchable()
+                                ->required()
+                                ->default(fn (Transaction $record) => $record->user?->member?->id),
+                        ])
                         ->action(function (Transaction $record, array $data): void {
-                            DB::transaction(function () use ($record, $data): void {
-                                $oldMember = $record->user?->member;
-                                if ($oldMember) {
-                                    $oldMember->debitBankAccount((float) $record->amount);
-                                }
-                                $newMember = Member::find($data['member_id']);
-                                if ($newMember) {
-                                    $newMember->creditBankAccount((float) $record->amount);
-                                    $record->update(['user_id' => $newMember->user_id]);
-                                }
-                            });
-    
+                            $newMember = Member::find($data['member_id']);
+                            if (! $newMember) {
+                                return;
+                            }
+
+                            $service = app(TransactionService::class);
+
+                            try {
+                                DB::transaction(function () use ($record, $newMember, $service): void {
+                                    $service->undoExternalImportMemberAssignment($record);
+                                    $record->refresh();
+                                    $service->postExternalImportToMember($record, $newMember);
+                                });
+                            } catch (\Throwable $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Could not reassign')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
                             \Filament\Notifications\Notification::make()
                                 ->title('Reassigned to member')
+                                ->body('Previous member bank credit reversed (or adjusted); new member bank credit created.')
                                 ->success()
                                 ->send();
                         })
@@ -296,37 +330,56 @@ class TransactionsRelationManager extends RelationManager
                         ])
                         ->action(function (array $data, $records): void {
                             $member = Member::find($data['member_id']);
-                            if (!$member) {
+                            if (! $member) {
                                 return;
                             }
+
+                            $service = app(TransactionService::class);
                             $assigned = 0;
-                            DB::transaction(function () use ($records, $member, &$assigned): void {
+                            $errors = [];
+
+                            DB::transaction(function () use ($records, $member, $service, &$assigned, &$errors): void {
                                 foreach ($records as $record) {
                                     if ($record->type !== 'external_import' || $record->user_id) {
                                         continue;
                                     }
-                                    $member->creditBankAccount((float) $record->amount);
-                                    $record->update(['user_id' => $member->user_id]);
-                                    $assigned++;
+                                    try {
+                                        $service->postExternalImportToMember($record, $member);
+                                        $assigned++;
+                                    } catch (\Throwable $e) {
+                                        $errors[] = $record->transaction_id.': '.$e->getMessage();
+                                    }
                                 }
                             });
-                            \Filament\Notifications\Notification::make()
-                                ->title('Assign Member')
-                                ->body($assigned . ' transaction(s) assigned to member.')
-                                ->success()
-                                ->send();
+
+                            if ($errors !== []) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Some rows were skipped')
+                                    ->body($assigned.' posted. '.implode(' ', $errors))
+                                    ->warning()
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Assign Member')
+                                    ->body($assigned.' transaction(s) assigned with member bank credits.')
+                                    ->success()
+                                    ->send();
+                            }
+
                             $this->getOwnerRecord()->refresh();
                             $this->dispatch('refreshMasterAccountRecord');
                         })
                         ->deselectRecordsAfterCompletion()
                         ->visible(fn (): bool => $this->getOwnerRecord()->account_type === 'master_bank'),
 
-                    Actions\DeleteBulkAction::make()
-                        ->authorize(fn() => true)
-                        ->after(function (): void {
-                            $this->getOwnerRecord()->refresh();
-                            $this->dispatch('refreshMasterAccountRecord');
-                        }),
+                    TransactionDeleteActionConfigurator::configureBulkDelete(
+                        Actions\DeleteBulkAction::make()
+                            ->authorize(fn () => true)
+                            ->after(function (): void {
+                                $this->getOwnerRecord()->refresh();
+                                $this->dispatch('refreshMasterAccountRecord');
+                            }),
+                    ),
                 ]),
             ])
             ->paginated([10, 25, 50]);
@@ -336,7 +389,7 @@ class TransactionsRelationManager extends RelationManager
     {
         $owner = $this->getOwnerRecord();
 
-        if (!$owner) {
+        if (! $owner) {
             return null;
         }
 
@@ -350,4 +403,3 @@ class TransactionsRelationManager extends RelationManager
         };
     }
 }
-

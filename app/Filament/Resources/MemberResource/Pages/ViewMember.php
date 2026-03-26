@@ -9,6 +9,7 @@ use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components as SchemaComponents;
 use Livewire\Attributes\On;
 
 class ViewMember extends ViewRecord
@@ -54,15 +55,15 @@ class ViewMember extends ViewRecord
                 ->tooltip('Set Allowances')
                 ->icon('heroicon-o-adjustments-horizontal')
                 ->link()
-                ->visible(fn() => $member->isParentMember())
+                ->visible(fn () => $member->isParentMember())
                 ->form(function () use ($member, $dependants) {
                     $allocationOptions = array_combine(
                         Member::ALLOCATION_OPTIONS,
-                        array_map(fn($v) => '$' . number_format($v, 0), Member::ALLOCATION_OPTIONS)
+                        array_map(fn ($v) => '$'.number_format($v, 0), Member::ALLOCATION_OPTIONS)
                     );
                     $fields = [
                         Forms\Components\Select::make("allowance_{$member->id}")
-                            ->label(($member->user ? "{$member->user->name} ({$member->user->user_code})" : "Member #{$member->id}") . ' (yourself)')
+                            ->label(($member->user ? "{$member->user->name} ({$member->user->user_code})" : "Member #{$member->id}").' (yourself)')
                             ->options($allocationOptions)
                             ->default((int) ($member->allowed_allocation ?? 500))
                             ->required(),
@@ -74,6 +75,7 @@ class ViewMember extends ViewRecord
                             ->default((int) ($d->allowed_allocation ?? 500))
                             ->required();
                     }
+
                     return $fields;
                 })
                 ->action(function (array $data) use ($member, $dependants): void {
@@ -93,28 +95,29 @@ class ViewMember extends ViewRecord
                 ->tooltip('Allocate to Dependant')
                 ->icon('heroicon-o-banknotes')
                 ->link()
-                ->visible(fn() => $member->isParentMember())
+                ->visible(fn () => $member->isParentMember())
                 ->form([
                     Forms\Components\Select::make('dependent_id')
                         ->label('Dependant')
                         ->options(
                             $dependants->mapWithKeys(
-                                fn(Member $d) => [$d->id => $d->user ? "{$d->user->name} ({$d->user->user_code})" : "Member #{$d->id}"]
+                                fn (Member $d) => [$d->id => $d->user ? "{$d->user->name} ({$d->user->user_code})" : "Member #{$d->id}"]
                             )
                         )
                         ->required()
                         ->live()
                         ->helperText(function ($get) use ($member, $dependants) {
                             $dep = $dependants->find((int) $get('dependent_id'));
-                            if (!$dep) {
+                            if (! $dep) {
                                 return null;
                             }
                             $amount = (int) ($dep->allowed_allocation ?? 500);
                             $bank = (float) $member->bank_account_balance;
                             $sufficient = $bank >= $amount;
-                            return 'Amount to allocate: $' . number_format($amount, 2)
-                                . ' — your bank balance: $' . number_format($bank, 2)
-                                . ($sufficient ? '' : ' ⚠ Insufficient balance');
+
+                            return 'Amount to allocate: $'.number_format($amount, 2)
+                                .' — your bank balance: $'.number_format($bank, 2)
+                                .($sufficient ? '' : ' ⚠ Insufficient balance');
                         }),
                     Forms\Components\Textarea::make('notes')
                         ->label('Notes')
@@ -126,17 +129,19 @@ class ViewMember extends ViewRecord
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $dependent = Member::query()->find((int) $data['dependent_id']);
-                    if (!$dependent || $dependent->parent_id !== $member->id) {
+                    if (! $dependent || $dependent->parent_id !== $member->id) {
                         Notification::make()->title('Invalid dependant')->danger()->send();
+
                         return;
                     }
                     $amount = (int) ($dependent->allowed_allocation ?? 500);
                     if ((float) $member->bank_account_balance < $amount) {
                         Notification::make()
                             ->title('Insufficient bank balance')
-                            ->body('Need $' . number_format($amount, 2) . ', available $' . number_format((float) $member->bank_account_balance, 2) . '.')
+                            ->body('Need $'.number_format($amount, 2).', available $'.number_format((float) $member->bank_account_balance, 2).'.')
                             ->danger()
                             ->send();
+
                         return;
                     }
                     try {
@@ -146,7 +151,7 @@ class ViewMember extends ViewRecord
                         $this->dispatch('refreshTransactions');
                         Notification::make()
                             ->title('Allocation completed')
-                            ->body('$' . number_format($amount, 2) . ' allocated to ' . ($dependent->user?->name ?? "Member #{$dependent->id}") . '.')
+                            ->body('$'.number_format($amount, 2).' allocated to '.($dependent->user?->name ?? "Member #{$dependent->id}").'.')
                             ->success()
                             ->send();
                     } catch (\Exception $e) {
@@ -155,14 +160,15 @@ class ViewMember extends ViewRecord
                 }),
             Actions\Action::make('contribute')
                 ->label('')
-                ->tooltip(fn() => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : 'Contribute')
+                ->tooltip(fn () => (float) $member->bank_account_balance <= 0 ? 'No bank balance available to contribute' : 'Contribute')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->link()
-                ->visible(fn() => !$member->hasActiveLoan())
-                ->disabled(fn() => (float) $member->bank_account_balance <= 0)
+                ->visible(fn () => ! $member->hasActiveLoan())
+                ->disabled(fn () => (float) $member->bank_account_balance <= 0)
                 ->form(function () use ($member) {
                     $default = (int) ($member->allowed_allocation ?? 500);
                     $bank = (float) $member->bank_account_balance;
+
                     return [
                         Forms\Components\TextInput::make('amount')
                             ->label('Contribution Amount')
@@ -172,23 +178,57 @@ class ViewMember extends ViewRecord
                             ->minValue(0.01)
                             ->step(0.01)
                             ->required()
-                            ->helperText('Default is your allowance ($' . number_format($default, 2) . '). Bank balance available: $' . number_format($bank, 2) . '.'),
+                            ->helperText('Default is your allowance ($'.number_format($default, 2).'). Bank balance available: $'.number_format($bank, 2).'.'),
                         Forms\Components\DatePicker::make('contribution_date')
                             ->label('Contribution date (optional)')
                             ->native(false),
+                        SchemaComponents\Section::make('Collection classification (optional)')
+                            ->description('Override which collection period this payment applies to, the period due date, and whether it counts as on time or late. Leave the period empty to use automatic assignment.')
+                            ->schema([
+                                Forms\Components\DatePicker::make('collection_obligation_month')
+                                    ->label('Collection period (obligation month)')
+                                    ->native(false)
+                                    ->helperText('Any day in the month; the first of that month is stored.'),
+                                Forms\Components\DatePicker::make('collection_period_due')
+                                    ->label('Period due date')
+                                    ->native(false)
+                                    ->helperText('Leave empty to use the configured due date for that obligation month.'),
+                                Forms\Components\Select::make('collection_timing_override')
+                                    ->label('On time / late')
+                                    ->options([
+                                        'auto' => 'Automatic (compare payment date to due)',
+                                        'on_time' => 'On time',
+                                        'late' => 'Late',
+                                    ])
+                                    ->default('auto'),
+                            ])
+                            ->collapsed(),
                     ];
                 })
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $amount = (float) $data['amount'];
+                    $classification = null;
+                    if (! empty($data['collection_obligation_month'])) {
+                        $classification = [
+                            'obligation_month' => $data['collection_obligation_month'],
+                            'period_due_date' => $data['collection_period_due'] ?? null,
+                        ];
+                        $timing = $data['collection_timing_override'] ?? 'auto';
+                        if ($timing === 'on_time') {
+                            $classification['is_late'] = false;
+                        } elseif ($timing === 'late') {
+                            $classification['is_late'] = true;
+                        }
+                    }
                     try {
-                        $member->contribute($amount, null, $data['contribution_date'] ?? null);
+                        $member->contribute($amount, null, $data['contribution_date'] ?? null, $classification);
                         $this->record = $member->fresh();
                         $this->refreshInfolist();
                         $this->dispatch('refreshTransactions');
                         Notification::make()
                             ->title('Contribution posted')
-                            ->body('$' . number_format($amount, 2) . ' contributed to your fund account.')
+                            ->body('$'.number_format($amount, 2).' contributed to your fund account.')
                             ->success()
                             ->send();
                     } catch (\Exception $e) {
@@ -201,17 +241,19 @@ class ViewMember extends ViewRecord
                 ->tooltip('Make Repayment')
                 ->icon('heroicon-o-arrow-up-circle')
                 ->link()
-                ->visible(fn() => $member->hasActiveLoan())
+                ->visible(fn () => $member->hasActiveLoan())
                 ->form(function () use ($member) {
                     $activeLoans = $member->loansQuery()->where('status', 'active')->with('member')->get();
                     $options = $activeLoans->mapWithKeys(function (\App\Models\Loan $loan) {
                         $installment = (float) ($loan->installment_amount ?? $loan->monthly_payment);
                         $remaining = (float) $loan->outstanding_balance;
                         $payAmount = min($installment, $remaining);
+
                         return [
-                            $loan->id => "{$loan->loan_id} — installment \${$payAmount} (balance \$" . number_format($remaining, 2) . ')',
+                            $loan->id => "{$loan->loan_id} — installment \${$payAmount} (balance \$".number_format($remaining, 2).')',
                         ];
                     });
+
                     return [
                         Forms\Components\Select::make('loan_id')
                             ->label('Loan')
@@ -221,23 +263,25 @@ class ViewMember extends ViewRecord
                             ->live()
                             ->helperText(function ($get) use ($member, $activeLoans) {
                                 $loan = $activeLoans->find((int) $get('loan_id'));
-                                if (!$loan) {
+                                if (! $loan) {
                                     return null;
                                 }
                                 $installment = min((float) ($loan->installment_amount ?? $loan->monthly_payment), (float) $loan->outstanding_balance);
                                 $bank = (float) $member->bank_account_balance;
                                 $sufficient = $bank >= $installment;
-                                return 'Repayment: $' . number_format($installment, 2)
-                                    . ' — bank balance: $' . number_format($bank, 2)
-                                    . ($sufficient ? '' : ' — Insufficient balance');
+
+                                return 'Repayment: $'.number_format($installment, 2)
+                                    .' — bank balance: $'.number_format($bank, 2)
+                                    .($sufficient ? '' : ' — Insufficient balance');
                             }),
                     ];
                 })
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $loan = \App\Models\Loan::find($data['loan_id']);
-                    if (!$loan || $loan->member_id !== $member->id) {
+                    if (! $loan || $loan->member_id !== $member->id) {
                         Notification::make()->title('Invalid loan')->danger()->send();
+
                         return;
                     }
                     try {
@@ -266,7 +310,7 @@ class ViewMember extends ViewRecord
                     $errors = $member->loanEligibilityErrors();
                     $fields = [];
 
-                    if (!empty($errors)) {
+                    if (! empty($errors)) {
                         $fields[] = Forms\Components\Placeholder::make('_eligibility_warning')
                             ->label('Not Eligible')
                             ->content(implode("\n", $errors))
@@ -275,7 +319,7 @@ class ViewMember extends ViewRecord
 
                     $fields[] = Forms\Components\Placeholder::make('_info')
                         ->label('Loan Limits')
-                        ->content('Max loan: $' . number_format($maxLoan, 2) . ' (2× fund balance $' . number_format((float) $member->fund_account_balance, 2) . ')');
+                        ->content('Max loan: $'.number_format($maxLoan, 2).' (2× fund balance $'.number_format((float) $member->fund_account_balance, 2).')');
 
                     $fields[] = Forms\Components\TextInput::make('amount')
                         ->label('Loan Amount')
@@ -289,12 +333,13 @@ class ViewMember extends ViewRecord
                         ->helperText(function ($get) {
                             $amount = (float) ($get('amount') ?? 0);
                             $tier = Member::loanTierFor($amount);
-                            if (!$tier) {
+                            if (! $tier) {
                                 return $amount > 0 ? 'Amount outside tier range ($1,000–$300,000)' : null;
                             }
                             $percentage = (float) ($tier['maturity_percentage'] ?? 16);
-                            return 'Installment: $' . number_format($tier['installment_amount'])
-                                . ' | Target (' . $percentage . '%): $' . number_format($tier['maturity_balance']);
+
+                            return 'Installment: $'.number_format($tier['installment_amount'])
+                                .' | Target ('.$percentage.'%): $'.number_format($tier['maturity_balance']);
                         })
                         ->rule(function () use ($member) {
                             return function (string $attribute, $value, \Closure $fail) use ($member) {
@@ -327,13 +372,15 @@ class ViewMember extends ViewRecord
                 ->action(function (array $data): void {
                     $member = $this->record->fresh();
                     $errors = $member->loanEligibilityErrors();
-                    if (!empty($errors)) {
+                    if (! empty($errors)) {
                         Notification::make()->title('Not eligible for a loan')->body(implode("\n", $errors))->danger()->send();
+
                         return;
                     }
                     $amount = (float) $data['amount'];
                     if ($amount > $member->maxLoanAmount()) {
-                        Notification::make()->title('Amount exceeds maximum ($' . number_format($member->maxLoanAmount(), 2) . ')')->danger()->send();
+                        Notification::make()->title('Amount exceeds maximum ($'.number_format($member->maxLoanAmount(), 2).')')->danger()->send();
+
                         return;
                     }
                     $tier = Member::loanTierFor($amount);
@@ -356,7 +403,7 @@ class ViewMember extends ViewRecord
                     ]);
                     Notification::make()
                         ->title('Loan request submitted')
-                        ->body("Loan {$loan->loan_id} for \$" . number_format($amount, 2) . ' is pending approval.')
+                        ->body("Loan {$loan->loan_id} for \$".number_format($amount, 2).' is pending approval.')
                         ->success()
                         ->send();
                 }),
@@ -415,7 +462,7 @@ class ViewMember extends ViewRecord
                             ->orderBy('id')
                             ->get()
                             ->mapWithKeys(fn (Loan $l) => [
-                                $l->id => $l->loan_id . ' — outstanding $' . number_format((float) $l->outstanding_balance, 2),
+                                $l->id => $l->loan_id.' — outstanding $'.number_format((float) $l->outstanding_balance, 2),
                             ])
                             ->all())
                         ->helperText('The loan is not in the file — pick it here. Every row will post a repayment to this loan.'),

@@ -6,8 +6,8 @@ use App\Services\MonthlyCollectionsService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Transaction extends Model
@@ -30,12 +30,18 @@ class Transaction extends Model
         'approved_at',
         'allocation_pair_id',
         'related_transaction_id',
+        'collection_obligation_month',
+        'collection_period_due_date',
+        'collection_is_late',
     ];
 
     protected $casts = [
         'transaction_date' => 'date',
         'amount' => 'decimal:2',
         'approved_at' => 'datetime',
+        'collection_obligation_month' => 'date',
+        'collection_period_due_date' => 'date',
+        'collection_is_late' => 'boolean',
     ];
 
     // Relationships
@@ -79,6 +85,30 @@ class Transaction extends Model
     /** @var array<int, true> IDs of allocation-paired transactions being deleted after their pair was reversed (skip reverse to avoid double-reverse) */
     protected static array $skipReverseAllocationPairIds = [];
 
+    /**
+     * When true, reversing a completed transaction's effect on a member bank account may debit below zero
+     * (admin opt-in, e.g. bulk delete when the member no longer holds the original credited balance).
+     * Rows with type `reversal` also allow this when processing (see executeAdjustment).
+     */
+    public static bool $forceReverseBalanceOnDelete = false;
+
+    /**
+     * @template T
+     *
+     * @param  \Closure(): T  $callback
+     * @return T
+     */
+    public static function withForcedReverseBalanceOnDelete(bool $force, \Closure $callback): mixed
+    {
+        $previous = static::$forceReverseBalanceOnDelete;
+        static::$forceReverseBalanceOnDelete = $force;
+        try {
+            return $callback();
+        } finally {
+            static::$forceReverseBalanceOnDelete = $previous;
+        }
+    }
+
     protected static function booted(): void
     {
         static::deleting(function (Transaction $transaction): void {
@@ -87,6 +117,7 @@ class Transaction extends Model
             }
             if (isset(static::$skipReverseAllocationPairIds[$transaction->id])) {
                 unset(static::$skipReverseAllocationPairIds[$transaction->id]);
+
                 return;
             }
             $transaction->reverseBalanceEffect();
@@ -167,7 +198,7 @@ class Transaction extends Model
     public function process(): void
     {
         if ($this->status !== 'pending') {
-            throw new \Exception("Only pending transactions can be processed");
+            throw new \Exception('Only pending transactions can be processed');
         }
 
         DB::transaction(function () {
@@ -183,12 +214,12 @@ class Transaction extends Model
     public function reverse(string $reason): self
     {
         if ($this->status !== 'complete') {
-            throw new \Exception("Only completed transactions can be reversed");
+            throw new \Exception('Only completed transactions can be reversed');
         }
 
         DB::transaction(function () use ($reason) {
             $reversalDC = $this->debit_or_credit === 'credit' ? 'debit' : 'credit';
-            
+
             $reversal = static::create([
                 'transaction_id' => static::generateTransactionId('REV'),
                 'transaction_date' => now(),
@@ -217,14 +248,15 @@ class Transaction extends Model
 
     /**
      * Increment/Decrement the target account balance based on debit_or_credit.
-     * @param bool $isProcessing True if we are applying the transaction, False if we are reversing it.
+     *
+     * @param  bool  $isProcessing  True if we are applying the transaction, False if we are reversing it.
      */
     public function adjustBalance(bool $isProcessing): void
     {
         $amount = (float) $this->amount;
         $isCredit = $this->debit_or_credit === 'credit';
 
-        $shouldIncrease = $isProcessing ? $isCredit : !$isCredit;
+        $shouldIncrease = $isProcessing ? $isCredit : ! $isCredit;
         $adjustment = $shouldIncrease ? abs($amount) : -abs($amount);
 
         $this->executeAdjustment($this->target_account, $adjustment);
@@ -240,29 +272,36 @@ class Transaction extends Model
 
     private function executeAdjustment(?string $target, float $amount): void
     {
-        if (!$target) return;
+        if (! $target) {
+            return;
+        }
 
         if ($target === 'master_bank' || $target === 'master_fund') {
             $master = MasterAccount::where('account_type', $target)->first();
             if ($master) {
                 $master->increment('balance', $amount);
-                
+
                 // If targeting master_fund and have a user, update their fund share record too
                 if ($target === 'master_fund' && $this->user) {
                     $amount > 0 ? $this->user->creditFundAccount(abs($amount)) : $this->user->debitFundAccount(abs($amount));
                 }
-                
-                // NOTE: We don't automatically update user_bank when master_bank changes, 
+
+                // NOTE: We don't automatically update user_bank when master_bank changes,
                 // because that's usually a separate transaction in the pair.
             }
         } elseif ($target === 'user_bank' || $target === 'user_fund') {
             if ($this->user) {
                 if ($target === 'user_bank') {
-                    $amount > 0 ? $this->user->creditBankAccount(abs($amount)) : $this->user->debitBankAccount(abs($amount));
+                    $allowInsufficientBank = static::$forceReverseBalanceOnDelete
+                        || $this->type === 'reversal';
+
+                    $amount > 0
+                        ? $this->user->creditBankAccount(abs($amount))
+                        : $this->user->debitBankAccount(abs($amount), $allowInsufficientBank);
                 } else {
                     // This handles direct user_fund adjustments (though usually we go through master_fund)
                     $amount > 0 ? $this->user->creditFundAccount(abs($amount)) : $this->user->debitFundAccount(abs($amount));
-                    
+
                     // IF we update user_fund directly, we MUST also update master_fund to keep them in sync
                     $masterFund = MasterAccount::where('account_type', 'master_fund')->first();
                     if ($masterFund) {
@@ -362,6 +401,6 @@ class Transaction extends Model
 
     public function getFormattedAmountAttribute(): string
     {
-        return '$' . number_format($this->amount, 2);
+        return '$'.number_format($this->amount, 2);
     }
 }

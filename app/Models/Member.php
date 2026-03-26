@@ -24,7 +24,6 @@ class Member extends Model
     /** Minimum membership duration (in years) required for loan eligibility. */
     public const LOAN_MIN_MEMBERSHIP_YEARS = 1;
 
-
     protected $fillable = [
         'user_id',
         'parent_id',
@@ -124,7 +123,11 @@ class Member extends Model
         return $this->hasMany(Loan::class, 'user_id', 'user_id');
     }
 
-    /** Loans for this member: same user_id or same member_id (covers inconsistent rows). */
+    /**
+     * Loans for this member: same user_id or same member_id (covers inconsistent rows).
+     *
+     * @return Builder<Loan>
+     */
     public function loansQuery(): Builder
     {
         return Loan::queryForMember($this);
@@ -142,6 +145,7 @@ class Member extends Model
         if (! $this->membership_date) {
             return 0;
         }
+
         return $this->membership_date->diffInDays(now()) / 365.25;
     }
 
@@ -154,6 +158,7 @@ class Member extends Model
     /**
      * Check whether this member is eligible for a new loan and return
      * a list of failed rules (empty = eligible).
+     *
      * @return string[]
      */
     public function loanEligibilityErrors(): array
@@ -161,14 +166,14 @@ class Member extends Model
         $errors = [];
 
         if ($this->membershipYears() < self::LOAN_MIN_MEMBERSHIP_YEARS) {
-            $errors[] = 'Membership must be at least ' . self::LOAN_MIN_MEMBERSHIP_YEARS
-                . ' year(s). Current: ' . number_format($this->membershipYears(), 1) . ' years.';
+            $errors[] = 'Membership must be at least '.self::LOAN_MIN_MEMBERSHIP_YEARS
+                .' year(s). Current: '.number_format($this->membershipYears(), 1).' years.';
         }
 
         if ((float) $this->fund_account_balance < self::LOAN_MIN_FUND_BALANCE) {
             $errors[] = 'Fund account balance must be at least $'
-                . number_format(self::LOAN_MIN_FUND_BALANCE, 2)
-                . '. Current: $' . number_format((float) $this->fund_account_balance, 2) . '.';
+                .number_format(self::LOAN_MIN_FUND_BALANCE, 2)
+                .'. Current: $'.number_format((float) $this->fund_account_balance, 2).'.';
         }
 
         return $errors;
@@ -181,6 +186,7 @@ class Member extends Model
 
     /**
      * Look up the loan tier for a given loan amount.
+     *
      * @return array{min_amount: int, max_amount: int, installment_amount: int, maturity_balance: int}|null
      */
     public static function loanTierFor(float $amount): ?array
@@ -199,9 +205,11 @@ class Member extends Model
                 $installment = (float) ($tier['installment_amount'] ?? 1);
                 $payoffFraction = 0.50 + 0.16; // 50% + 16% = 66%
                 $tier['term_months'] = max(1, (int) ceil(($payoffFraction * $amount) / $installment));
+
                 return $tier;
             }
         }
+
         return null;
     }
 
@@ -212,8 +220,8 @@ class Member extends Model
     public function checkTierAllocation(float $amount): ?string
     {
         $tier = self::loanTierFor($amount);
-        if (!$tier) {
-            return "Amount outside defined loan tier ranges.";
+        if (! $tier) {
+            return 'Amount outside defined loan tier ranges.';
         }
 
         $min = (float) ($tier['min_amount'] ?? 0);
@@ -231,12 +239,12 @@ class Member extends Model
 
         if (($activeLoansInTier + $amount) > $allowed) {
             $remaining = max(0, $allowed - $activeLoansInTier);
-            return "Requested amount ($" . number_format($amount, 2) . ") exceeds the {$tier['name']} allocation limit. Remaining allocation: $" . number_format($remaining, 2) . ".";
+
+            return 'Requested amount ($'.number_format($amount, 2).") exceeds the {$tier['name']} allocation limit. Remaining allocation: $".number_format($remaining, 2).'.';
         }
 
         return null;
     }
-
 
     // ─── Financials (moved from User) ─────────────────────────────────────────
 
@@ -256,9 +264,9 @@ class Member extends Model
         return $this->available_to_borrow >= $amount;
     }
 
-    public function debitBankAccount(float $amount): void
+    public function debitBankAccount(float $amount, bool $allowInsufficientBalance = false): void
     {
-        if (! $this->hasSufficientBankBalance($amount)) {
+        if (! $allowInsufficientBalance && ! $this->hasSufficientBankBalance($amount)) {
             throw new \Exception('Insufficient bank account balance');
         }
         $this->decrement('bank_account_balance', $amount);
@@ -284,22 +292,30 @@ class Member extends Model
      * Also increments the master fund balance. Creates a proper contribution transaction.
      *
      * @param  \DateTimeInterface|string|null  $transactionDate  Optional date for the contribution (default: now).
+     * @param  array{obligation_month?: \DateTimeInterface|string|null, period_due_date?: \DateTimeInterface|string|null, is_late?: bool|null}|null  $collectionClassification  Optional overrides for collection period / due / on-time vs late (stored on the contribution credit row).
      */
-    public function contribute(?float $amount = null, ?string $notes = null, \DateTimeInterface|string|null $transactionDate = null): Transaction
-    {
+    public function contribute(
+        ?float $amount = null,
+        ?string $notes = null,
+        \DateTimeInterface|string|null $transactionDate = null,
+        ?array $collectionClassification = null,
+    ): Transaction {
         $amount = $amount ?? (int) ($this->allowed_allocation ?? 500);
 
         if (! $this->hasSufficientBankBalance($amount)) {
             throw new \Exception(
-                'Insufficient bank account balance to contribute. ' .
-                'Required: $' . number_format($amount, 2) . ', ' .
-                'Available: $' . number_format((float) $this->bank_account_balance, 2) . '.'
+                'Insufficient bank account balance to contribute. '.
+                'Required: $'.number_format($amount, 2).', '.
+                'Available: $'.number_format((float) $this->bank_account_balance, 2).'.'
             );
         }
 
         $date = $transactionDate ? \Carbon\Carbon::parse($transactionDate) : now();
 
-        return DB::transaction(function () use ($amount, $notes, $date): Transaction {
+        $collectionAttrs = app(MonthlyCollectionsService::class)
+            ->transactionAttributesForCollectionClassification($collectionClassification, $date);
+
+        return DB::transaction(function () use ($amount, $notes, $date, $collectionAttrs): Transaction {
             $user = $this->user;
 
             // 1. Debit User Bank
@@ -312,7 +328,7 @@ class Member extends Model
                 'amount' => $amount,
                 'user_id' => $user->id,
                 'status' => 'pending',
-                'notes' => "Contribution Debit: " . ($notes ?? 'Member contribution'),
+                'notes' => 'Contribution Debit: '.($notes ?? 'Member contribution'),
                 'created_by' => auth()->id(),
             ]);
             $debit->process();
@@ -328,8 +344,9 @@ class Member extends Model
                 'user_id' => $user->id,
                 'related_transaction_id' => $debit->id,
                 'status' => 'pending',
-                'notes' => "Contribution Credit: " . ($notes ?? 'Member contribution'),
+                'notes' => 'Contribution Credit: '.($notes ?? 'Member contribution'),
                 'created_by' => auth()->id(),
+                ...$collectionAttrs,
             ]);
             $credit->process();
 
@@ -355,9 +372,9 @@ class Member extends Model
 
         if (! $this->hasSufficientBankBalance($amount)) {
             throw new \Exception(
-                'Insufficient bank account balance for repayment. ' .
-                'Required: $' . number_format($amount, 2) . ', ' .
-                'Available: $' . number_format((float) $this->bank_account_balance, 2) . '.'
+                'Insufficient bank account balance for repayment. '.
+                'Required: $'.number_format($amount, 2).', '.
+                'Available: $'.number_format((float) $this->bank_account_balance, 2).'.'
             );
         }
 
@@ -436,7 +453,6 @@ class Member extends Model
 
     /**
      * @param  Loan|null  $repaymentTargetLoan  null = contributions only; non-null = every row is a repayment to this loan
-     *
      * @return array{imported: int, skipped: int, errors: string[]}
      */
     private function importTabularFunds(string $absolutePath, string $dateFormat, ?Loan $repaymentTargetLoan): array
@@ -455,10 +471,10 @@ class Member extends Model
 
         DB::transaction(function () use ($sheet, $highestRow, $user, $dateFormat, $repaymentTargetLoan, &$results): void {
             for ($rowNum = 2; $rowNum <= $highestRow; $rowNum++) {
-                $dateCell   = $sheet->getCell("A{$rowNum}");
+                $dateCell = $sheet->getCell("A{$rowNum}");
                 $amountCell = $sheet->getCell("B{$rowNum}");
 
-                $rawDate   = $dateCell->getValue();
+                $rawDate = $dateCell->getValue();
                 $rawAmount = $amountCell->getValue();
                 if ($rawDate === null && $rawAmount === null) {
                     continue;
@@ -483,7 +499,8 @@ class Member extends Model
                 }
                 if ($txDate === null) {
                     $results['skipped']++;
-                    $results['errors'][] = "Row {$rowNum}: cannot parse date '{$dateStr}' (raw: " . (string) $rawDate . ')';
+                    $results['errors'][] = "Row {$rowNum}: cannot parse date '{$dateStr}' (raw: ".(string) $rawDate.')';
+
                     continue;
                 }
 
@@ -494,6 +511,7 @@ class Member extends Model
                 if ($amount <= 0) {
                     $results['skipped']++;
                     $results['errors'][] = "Row {$rowNum}: invalid amount '{$rawAmount}'";
+
                     continue;
                 }
 
@@ -548,7 +566,7 @@ class Member extends Model
         try {
             $this->makeRepayment($loan, $dateOnly);
         } catch (\Exception $e) {
-            $results['errors'][] = "Row {$rowNum}: loan {$loan->loan_id}: " . $e->getMessage();
+            $results['errors'][] = "Row {$rowNum}: loan {$loan->loan_id}: ".$e->getMessage();
         }
     }
 
@@ -636,7 +654,7 @@ class Member extends Model
         foreach ($separators as $sep) {
             // Replace the first non-alpha, non-Y/m/d character in the format with $sep
             $altFormat = preg_replace('/[\/\-\. ]/', $sep, $format);
-            $altDate   = preg_replace('/[\/\-\. ]/', $sep, $dateStr);
+            $altDate = preg_replace('/[\/\-\. ]/', $sep, $dateStr);
             if ($altFormat === $format && $altDate === $dateStr) {
                 continue; // no change, already tried above
             }
@@ -671,9 +689,9 @@ class Member extends Model
             ->where('target_account', 'user_bank')
             ->where('status', 'complete')
             ->get();
-            
-        return $transactions->sum(function($tx) {
-            return $tx->debit_or_credit === 'credit' ? (float)$tx->amount : -(float)$tx->amount;
+
+        return $transactions->sum(function ($tx) {
+            return $tx->debit_or_credit === 'credit' ? (float) $tx->amount : -(float) $tx->amount;
         });
     }
 
@@ -684,12 +702,12 @@ class Member extends Model
     public function computeFundAccountBalanceFromTransactions(): float
     {
         $transactions = $this->user->transactions()
-            ->where(fn($q) => $q->where('target_account', 'master_fund')->orWhere('target_account', 'user_fund'))
+            ->where(fn ($q) => $q->where('target_account', 'master_fund')->orWhere('target_account', 'user_fund'))
             ->where('status', 'complete')
             ->get();
 
-        return $transactions->sum(function($tx) {
-            return $tx->debit_or_credit === 'credit' ? (float)$tx->amount : -(float)$tx->amount;
+        return $transactions->sum(function ($tx) {
+            return $tx->debit_or_credit === 'credit' ? (float) $tx->amount : -(float) $tx->amount;
         });
     }
 
@@ -700,6 +718,7 @@ class Member extends Model
     {
         $balance = $this->computeBankAccountBalanceFromTransactions();
         $this->update(['bank_account_balance' => $balance]);
+
         return $balance;
     }
 
@@ -711,6 +730,7 @@ class Member extends Model
     {
         $balance = $this->computeFundAccountBalanceFromTransactions();
         $this->update(['fund_account_balance' => $balance]);
+
         return $balance;
     }
 
@@ -736,9 +756,9 @@ class Member extends Model
         $parentUser = $this->user;
         $dependentUser = $dependent->user;
 
-        DB::transaction(function () use ($dependent, $amount, $notes, $date, $parentUser, $dependentUser): void {
+        DB::transaction(function () use ($dependent, $amount, $date, $parentUser, $dependentUser): void {
             // Pair: Debit Parent Bank, Credit Dependent Bank
-            
+
             $outTx = Transaction::create([
                 'transaction_id' => Transaction::generateTransactionId('AL-OUT'),
                 'transaction_date' => $date,
@@ -748,7 +768,7 @@ class Member extends Model
                 'amount' => $amount,
                 'user_id' => $this->user_id,
                 'status' => 'pending',
-                'notes' => "Allocation OUT to dependant: " . ($dependentUser->name ?? "Member #{$dependent->id}"),
+                'notes' => 'Allocation OUT to dependant: '.($dependentUser->name ?? "Member #{$dependent->id}"),
                 'created_by' => auth()->id(),
             ]);
             $outTx->process();
@@ -763,7 +783,7 @@ class Member extends Model
                 'user_id' => $dependent->user_id,
                 'related_transaction_id' => $outTx->id,
                 'status' => 'pending',
-                'notes' => "Allocation IN from parent: " . ($parentUser->name ?? "Member #{$this->id}"),
+                'notes' => 'Allocation IN from parent: '.($parentUser->name ?? "Member #{$this->id}"),
                 'created_by' => auth()->id(),
             ]);
             $inTx->process();

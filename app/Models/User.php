@@ -5,11 +5,10 @@ namespace App\Models;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\DB;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -118,6 +117,7 @@ class User extends Authenticatable implements FilamentUser
         if (! $this->member) {
             return false;
         }
+
         return $this->member->hasSufficientBankBalance($amount);
     }
 
@@ -126,12 +126,12 @@ class User extends Authenticatable implements FilamentUser
         return $this->member && $this->member->canBorrow($amount);
     }
 
-    public function debitBankAccount(float $amount): void
+    public function debitBankAccount(float $amount, bool $allowInsufficientBalance = false): void
     {
         if (! $this->member) {
             throw new \RuntimeException('User must be a member to perform bank operations.');
         }
-        $this->member->debitBankAccount($amount);
+        $this->member->debitBankAccount($amount, $allowInsufficientBalance);
     }
 
     public function creditBankAccount(float $amount): void
@@ -170,6 +170,7 @@ class User extends Authenticatable implements FilamentUser
         if (! $this->member) {
             throw new \RuntimeException('User must be a member to recalculate bank balance.');
         }
+
         return $this->member->recalculateBankAccountBalanceFromTransactions();
     }
 
@@ -256,8 +257,8 @@ class User extends Authenticatable implements FilamentUser
     {
         $lastUser = static::withTrashed()->orderBy('id', 'desc')->first();
         $nextNumber = $lastUser ? ((int) substr($lastUser->user_code, 4)) + 1 : 1;
-        
-        return 'USER' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
+
+        return 'USER'.str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
     }
 
     // Scopes

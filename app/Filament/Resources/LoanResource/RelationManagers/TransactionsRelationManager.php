@@ -13,6 +13,12 @@ class TransactionsRelationManager extends RelationManager
 {
     protected static string $relationship = 'transactions';
 
+    /**
+     * Required so Filament authorizes without calling getTable() while the table property
+     * is still uninitialized (InteractsWithRelationshipTable::getAuthorizationResponse).
+     */
+    protected static ?string $relatedResource = TransactionResource::class;
+
     protected static ?string $title = 'Transactions';
 
     protected static string|\BackedEnum|null $icon = 'heroicon-o-arrow-path';

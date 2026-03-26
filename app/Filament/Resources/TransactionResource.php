@@ -4,25 +4,87 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\TransactionResource\Pages;
 use App\Filament\Support\CollectionObligationColumns;
+use App\Filament\Support\TransactionDeleteActionConfigurator;
 use App\Models\Member;
 use App\Models\Transaction;
-use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 use Filament\Actions;
 use Filament\Forms;
-use Filament\Resources\Resource;
-use Filament\Tables;
-use Filament\Tables\Table;
 use Filament\Infolists;
-use Filament\Schemas\Schema;
+use Filament\Resources\Resource;
 use Filament\Schemas\Components;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Schema;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\DB;
 
 class TransactionResource extends Resource
 {
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function hydrateContributionClassificationTiming(array $data): array
+    {
+        $timing = 'auto';
+        if (($data['type'] ?? null) === 'contribution' && filled($data['collection_obligation_month'] ?? null)) {
+            if (! array_key_exists('collection_is_late', $data) || $data['collection_is_late'] === null) {
+                $timing = 'auto';
+            } elseif ($data['collection_is_late']) {
+                $timing = 'late';
+            } else {
+                $timing = 'on_time';
+            }
+        }
+        $data['collection_timing'] = $timing;
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function applyContributionClassificationToSave(array $data): array
+    {
+        $type = $data['type'] ?? null;
+        if ($type === 'contribution') {
+            $data['collection_obligation_month'] = filled($data['collection_obligation_month'] ?? null)
+                ? Carbon::parse($data['collection_obligation_month'])->startOfMonth()->format('Y-m-d')
+                : null;
+            $data['collection_period_due_date'] = filled($data['collection_period_due_date'] ?? null)
+                ? Carbon::parse($data['collection_period_due_date'])->format('Y-m-d')
+                : null;
+            $t = $data['collection_timing'] ?? 'auto';
+            unset($data['collection_timing']);
+            if (empty($data['collection_obligation_month'])) {
+                $data['collection_period_due_date'] = null;
+                $data['collection_is_late'] = null;
+            } else {
+                $data['collection_is_late'] = match ($t) {
+                    'on_time' => false,
+                    'late' => true,
+                    default => null,
+                };
+            }
+        } else {
+            unset($data['collection_timing']);
+            $data['collection_obligation_month'] = null;
+            $data['collection_period_due_date'] = null;
+            $data['collection_is_late'] = null;
+        }
+
+        return $data;
+    }
+
     protected static ?string $model = Transaction::class;
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-arrow-path';
+
     protected static string|\UnitEnum|null $navigationGroup = 'Financial Operations';
+
     protected static ?int $navigationSort = 1;
 
     public static function form(Schema $schema): Schema
@@ -32,7 +94,7 @@ class TransactionResource extends Resource
                 Components\Section::make('Transaction Details')
                     ->schema([
                         Forms\Components\TextInput::make('transaction_id')
-                            ->default(fn() => Transaction::generateTransactionId())
+                            ->default(fn () => Transaction::generateTransactionId())
                             ->disabled()
                             ->dehydrated()
                             ->required(),
@@ -79,18 +141,18 @@ class TransactionResource extends Resource
                             ->options(\App\Models\ExternalBankAccount::pluck('bank_name', 'id'))
                             ->searchable()
                             ->preload()
-                            ->required(fn(Get $get): bool => $get('type') === 'external_import')
-                            ->visible(fn(Get $get): bool => $get('type') === 'external_import')
+                            ->required(fn (Get $get): bool => $get('type') === 'external_import')
+                            ->visible(fn (Get $get): bool => $get('type') === 'external_import')
                             ->live(),
 
                         // Master to User Bank, Contribution, Loan Repayment: target = member bank only
                         Forms\Components\Select::make('user_id')
                             ->label('Member')
-                            ->relationship('user', 'name', fn($query) => $query->whereHas('member'))
+                            ->relationship('user', 'name', fn ($query) => $query->whereHas('member'))
                             ->searchable()
                             ->preload()
-                            ->required(fn(Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true))
-                            ->visible(fn(Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true)),
+                            ->required(fn (Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true))
+                            ->visible(fn (Get $get): bool => in_array($get('type'), ['master_to_user_bank', 'contribution', 'loan_repayment'], true)),
 
                         // Adjustment only: target can be any account (including each member's bank and fund)
                         Forms\Components\Select::make('target_account')
@@ -105,17 +167,18 @@ class TransactionResource extends Resource
                                     ->get();
                                 $memberAccounts = [];
                                 foreach ($members as $member) {
-                                    $label = $member->user->name . ' (' . ($member->user->user_code ?? '') . ')';
+                                    $label = $member->user->name.' ('.($member->user->user_code ?? '').')';
                                     $memberAccounts["user_bank:{$member->user_id}"] = "Member Bank – {$label}";
                                     $memberAccounts["user_fund:{$member->user_id}"] = "Member Fund – {$label}";
                                 }
                                 $external = \App\Models\ExternalBankAccount::all()
-                                    ->mapWithKeys(fn($b) => ["external_bank:{$b->id}" => "External: {$b->bank_name}"])
+                                    ->mapWithKeys(fn ($b) => ["external_bank:{$b->id}" => "External: {$b->bank_name}"])
                                     ->all();
+
                                 return $base + $memberAccounts + $external;
                             })
-                            ->required(fn(Get $get): bool => $get('type') === 'adjustment')
-                            ->visible(fn(Get $get): bool => $get('type') === 'adjustment')
+                            ->required(fn (Get $get): bool => $get('type') === 'adjustment')
+                            ->visible(fn (Get $get): bool => $get('type') === 'adjustment')
                             ->searchable()
                             ->live(),
 
@@ -146,6 +209,31 @@ class TransactionResource extends Resource
                     ])
                     ->columns(2)
                     ->columnSpanFull(),
+
+                Components\Section::make('Collection classification (optional)')
+                    ->description('For contribution transactions only. When set, overrides automatic obligation period assignment for collections reporting.')
+                    ->visible(fn (Get $get): bool => $get('type') === 'contribution')
+                    ->schema([
+                        Forms\Components\DatePicker::make('collection_obligation_month')
+                            ->label('Collection period (obligation month)')
+                            ->native(false)
+                            ->helperText('Any day in the month; the first of that month is stored.'),
+                        Forms\Components\DatePicker::make('collection_period_due_date')
+                            ->label('Period due date')
+                            ->native(false)
+                            ->helperText('Leave empty to use the configured due date for that obligation month.'),
+                        Forms\Components\Select::make('collection_timing')
+                            ->label('On time / late')
+                            ->options([
+                                'auto' => 'Automatic (compare payment date to due)',
+                                'on_time' => 'On time',
+                                'late' => 'Late',
+                            ])
+                            ->default('auto'),
+                    ])
+                    ->columns(2)
+                    ->collapsed()
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -175,12 +263,12 @@ class TransactionResource extends Resource
                         'secondary' => 'adjustment',
                         'gray' => ['allocation_to_dependant', 'allocation_from_parent', 'reversal'],
                     ])
-                    ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
+                    ->formatStateUsing(fn ($state) => str_replace('_', ' ', ucfirst($state))),
 
                 Tables\Columns\TextColumn::make('target_account')
                     ->searchable()
                     ->sortable()
-                    ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
+                    ->formatStateUsing(fn ($state) => str_replace('_', ' ', ucfirst($state))),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->state(function (Transaction $record) {
@@ -265,97 +353,109 @@ class TransactionResource extends Resource
                     ])
                     ->query(function ($query, array $data) {
                         return $query
-                            ->when($data['from'] ?? null, fn($q, $date) => $q->whereDate('transaction_date', '>=', $date))
-                            ->when($data['to'] ?? null, fn($q, $date) => $q->whereDate('transaction_date', '<=', $date));
+                            ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('transaction_date', '>=', $date))
+                            ->when($data['to'] ?? null, fn ($q, $date) => $q->whereDate('transaction_date', '<=', $date));
                     })
                     ->indicateUsing(function (array $data): array {
                         $indicators = [];
-                        if (!empty($data['from'])) {
-                            $indicators[] = 'From: ' . \Carbon\Carbon::parse($data['from'])->toFormattedDateString();
+                        if (! empty($data['from'])) {
+                            $indicators[] = 'From: '.\Carbon\Carbon::parse($data['from'])->toFormattedDateString();
                         }
-                        if (!empty($data['to'])) {
-                            $indicators[] = 'To: ' . \Carbon\Carbon::parse($data['to'])->toFormattedDateString();
+                        if (! empty($data['to'])) {
+                            $indicators[] = 'To: '.\Carbon\Carbon::parse($data['to'])->toFormattedDateString();
                         }
+
                         return $indicators;
                     }),
             ])
             ->recordActions([
-                Actions\ViewAction::make(),
-                Actions\EditAction::make(),
+                Actions\ActionGroup::make([
+                    Actions\ViewAction::make()
+                        ->label('View')
+                        ->tooltip('View'),
+                    Actions\EditAction::make()
+                        ->label('Edit')
+                        ->tooltip('Edit'),
 
-                Actions\Action::make('assign_user')
-                    ->label('Assign Member')
-                    ->icon('heroicon-o-user-plus')
-                    ->color('gray')
-                    ->form([
-                        Forms\Components\Select::make('member_id')
-                            ->label('Member')
-                            ->options(
-                                Member::with('user')
-                                    ->get()
-                                    ->mapWithKeys(fn(Member $m) => [
-                                        $m->id => $m->user
-                                            ? "{$m->user->name} ({$m->user->user_code})"
-                                            : "Member #{$m->id}",
-                                    ])
-                            )
-                            ->searchable()
-                            ->required(),
-                    ])
-                    ->action(function (Transaction $record, array $data): void {
-                        DB::transaction(function () use ($record, $data): void {
-                            $member = Member::find($data['member_id']);
-                            if ($member) {
-                                $member->creditBankAccount((float) $record->amount);
-                                $record->update(['user_id' => $member->user_id]);
-                            }
-                        });
-                        \Filament\Notifications\Notification::make()
-                            ->title('Assigned to member')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn(Transaction $record) => false),
+                    Actions\Action::make('assign_user')
+                        ->label('Assign Member')
+                        ->icon('heroicon-o-user-plus')
+                        ->color('gray')
+                        ->form([
+                            Forms\Components\Select::make('member_id')
+                                ->label('Member')
+                                ->options(
+                                    Member::with('user')
+                                        ->get()
+                                        ->mapWithKeys(fn (Member $m) => [
+                                            $m->id => $m->user
+                                                ? "{$m->user->name} ({$m->user->user_code})"
+                                                : "Member #{$m->id}",
+                                        ])
+                                )
+                                ->searchable()
+                                ->required(),
+                        ])
+                        ->action(function (Transaction $record, array $data): void {
+                            DB::transaction(function () use ($record, $data): void {
+                                $member = Member::find($data['member_id']);
+                                if ($member) {
+                                    $member->creditBankAccount((float) $record->amount);
+                                    $record->update(['user_id' => $member->user_id]);
+                                }
+                            });
+                            \Filament\Notifications\Notification::make()
+                                ->title('Assigned to member')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (Transaction $record) => false),
 
-                Actions\Action::make('clear_assignment')
-                    ->label('Clear Assignment')
-                    ->icon('heroicon-o-user-minus')
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalHeading('Clear member assignment')
-                    ->modalDescription('This will unassign the transaction from the current member.')
-                    ->action(function (Transaction $record): void {
-                        DB::transaction(function () use ($record): void {
-                            $member = $record->user?->member;
-                            if ($member) {
-                                $member->debitBankAccount((float) $record->amount);
-                            }
-                            $record->update(['user_id' => null]);
-                        });
-                        \Filament\Notifications\Notification::make()
-                            ->title('Assignment cleared')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn(Transaction $record) => false),
+                    Actions\Action::make('clear_assignment')
+                        ->label('Clear Assignment')
+                        ->icon('heroicon-o-user-minus')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Clear member assignment')
+                        ->modalDescription('This will unassign the transaction from the current member.')
+                        ->action(function (Transaction $record): void {
+                            DB::transaction(function () use ($record): void {
+                                $member = $record->user?->member;
+                                if ($member) {
+                                    $member->debitBankAccount((float) $record->amount);
+                                }
+                                $record->update(['user_id' => null]);
+                            });
+                            \Filament\Notifications\Notification::make()
+                                ->title('Assignment cleared')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn (Transaction $record) => false),
 
-                Actions\Action::make('reverse')
-                    ->icon('heroicon-o-arrow-uturn-left')
-                    ->color('danger')
-                    ->requiresConfirmation()
-                    ->schema([
-                        Forms\Components\Textarea::make('reason')
-                            ->required()
-                            ->label('Reversal Reason'),
-                    ])
-                    ->action(function (Transaction $record, array $data) {
-                        $record->reverse($data['reason']);
-                    })
-                    ->visible(fn($record) => $record->status === 'complete'),
+                    Actions\Action::make('reverse')
+                        ->label('Reverse')
+                        ->tooltip('Reverse transaction')
+                        ->icon('heroicon-o-arrow-uturn-left')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->schema([
+                            Forms\Components\Textarea::make('reason')
+                                ->required()
+                                ->label('Reversal Reason'),
+                        ])
+                        ->action(function (Transaction $record, array $data) {
+                            $record->reverse($data['reason']);
+                        })
+                        ->visible(fn ($record) => $record->status === 'complete'),
+                ])
+                    ->label('')
+                    ->icon('heroicon-o-ellipsis-horizontal')
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 Actions\BulkActionGroup::make([
-                    Actions\DeleteBulkAction::make(),
+                    TransactionDeleteActionConfigurator::configureBulkDelete(Actions\DeleteBulkAction::make()),
                 ]),
             ])
             ->striped()
@@ -376,7 +476,7 @@ class TransactionResource extends Resource
                             ->dateTime(),
                         Infolists\Components\TextEntry::make('type')
                             ->badge()
-                            ->color(fn($state) => match ($state) {
+                            ->color(fn ($state) => match ($state) {
                                 'external_import' => 'primary',
                                 'contribution' => 'success',
                                 'loan_repayment' => 'warning',
@@ -387,15 +487,15 @@ class TransactionResource extends Resource
                                 'reversal' => 'gray',
                                 default => 'secondary',
                             })
-                            ->formatStateUsing(fn($state) => str_replace('_', ' ', ucfirst($state))),
+                            ->formatStateUsing(fn ($state) => str_replace('_', ' ', ucfirst($state))),
                         Infolists\Components\TextEntry::make('debit_or_credit')
                             ->label('Debit / Credit')
                             ->badge()
-                            ->color(fn($state) => $state === 'credit' ? 'success' : 'danger')
-                            ->formatStateUsing(fn($state) => ucfirst($state)),
+                            ->color(fn ($state) => $state === 'credit' ? 'success' : 'danger')
+                            ->formatStateUsing(fn ($state) => ucfirst($state)),
                         Infolists\Components\TextEntry::make('target_account')
                             ->placeholder('—')
-                            ->formatStateUsing(fn(?string $state): string => $state ? str_replace('_', ' ', ucfirst($state)) : '—'),
+                            ->formatStateUsing(fn (?string $state): string => $state ? str_replace('_', ' ', ucfirst($state)) : '—'),
                         Infolists\Components\TextEntry::make('amount')
                             ->money('USD'),
                         Infolists\Components\TextEntry::make('reference'),
@@ -447,7 +547,7 @@ class TransactionResource extends Resource
                             ->label('User Code'),
                     ])
                     ->columns(2)
-                    ->visible(fn($record) => $record->user_id),
+                    ->visible(fn ($record) => $record->user_id),
 
                 Components\Section::make('Additional Details')
                     ->schema([
@@ -455,10 +555,10 @@ class TransactionResource extends Resource
                             ->label('Created By'),
                         Infolists\Components\TextEntry::make('approver.name')
                             ->label('Approved By')
-                            ->visible(fn($record) => $record->approved_by),
+                            ->visible(fn ($record) => $record->approved_by),
                         Infolists\Components\TextEntry::make('approved_at')
                             ->dateTime()
-                            ->visible(fn($record) => $record->approved_at),
+                            ->visible(fn ($record) => $record->approved_at),
                         Infolists\Components\TextEntry::make('notes')
                             ->columnSpanFull(),
                     ])

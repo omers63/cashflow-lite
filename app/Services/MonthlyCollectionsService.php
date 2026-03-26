@@ -2,12 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Loan;
 use App\Models\Member;
 use App\Models\Setting;
 use App\Models\Transaction;
-use App\Models\Loan;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class MonthlyCollectionsService
 {
@@ -119,6 +118,74 @@ class MonthlyCollectionsService
     }
 
     /**
+     * Persisted overrides for contribution (credit) rows: obligation month, optional due date, optional late flag.
+     *
+     * @param  array{obligation_month?: \DateTimeInterface|string|null, period_due_date?: \DateTimeInterface|string|null, is_late?: bool|null}|null  $input
+     * @return array{collection_obligation_month: ?string, collection_period_due_date: ?string, collection_is_late: ?bool}
+     */
+    public function transactionAttributesForCollectionClassification(?array $input, Carbon $paymentDate): array
+    {
+        if ($input === null || empty($input['obligation_month'])) {
+            return [
+                'collection_obligation_month' => null,
+                'collection_period_due_date' => null,
+                'collection_is_late' => null,
+            ];
+        }
+
+        $obl = Carbon::parse($input['obligation_month'])->startOfMonth();
+
+        $due = ! empty($input['period_due_date'])
+            ? Carbon::parse($input['period_due_date'])->startOfDay()
+            : $this->getDueDate((int) $obl->year, (int) $obl->month);
+
+        if (array_key_exists('is_late', $input) && $input['is_late'] !== null) {
+            $isLate = (bool) $input['is_late'];
+        } else {
+            $isLate = $paymentDate->copy()->startOfDay()->greaterThan($due);
+        }
+
+        return [
+            'collection_obligation_month' => $obl->toDateString(),
+            'collection_period_due_date' => $due->toDateString(),
+            'collection_is_late' => $isLate,
+        ];
+    }
+
+    /**
+     * One step in the member's chronological collection walk: use stored overrides or automatic assignment.
+     *
+     * @param  array<string, true>  $filled
+     * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
+     */
+    public function classifyRowInMemberSequence(Transaction $row, array &$filled): ?array
+    {
+        $paymentDate = Carbon::parse($row->transaction_date)->startOfDay();
+
+        if ($row->collection_obligation_month) {
+            $obligationMonth = Carbon::parse($row->collection_obligation_month)->startOfMonth();
+            $filled[$obligationMonth->format('Y-m')] = true;
+
+            $due = $row->collection_period_due_date
+                ? Carbon::parse($row->collection_period_due_date)->startOfDay()
+                : $this->getDueDate((int) $obligationMonth->year, (int) $obligationMonth->month);
+
+            $isLate = $row->collection_is_late !== null
+                ? (bool) $row->collection_is_late
+                : $paymentDate->greaterThan($due);
+
+            return [
+                'obligation_month' => $obligationMonth->copy(),
+                'obligation_label' => $obligationMonth->format('F Y'),
+                'due_date' => $due->copy(),
+                'is_late' => $isLate,
+            ];
+        }
+
+        return $this->assignObligationForPaymentDate($paymentDate, $filled);
+    }
+
+    /**
      * Classify a completed contribution or loan repayment using chronological allocation for its member.
      *
      * @return array{obligation_month: Carbon, obligation_label: string, due_date: Carbon, is_late: bool}|null
@@ -139,16 +206,17 @@ class MonthlyCollectionsService
         }
 
         $filled = [];
+        /** @var \Illuminate\Database\Eloquent\Collection<int, Transaction> $rows */
         $rows = Transaction::query()
             ->where('user_id', $userId)
             ->whereIn('type', ['contribution', 'loan_repayment'])
             ->where('status', 'complete')
             ->orderBy('transaction_date')
             ->orderBy('id')
-            ->get(['id', 'transaction_date']);
+            ->get();
 
         foreach ($rows as $row) {
-            $assignment = $this->assignObligationForPaymentDate(Carbon::parse($row->transaction_date), $filled);
+            $assignment = $this->classifyRowInMemberSequence($row, $filled);
             if ((int) $row->id === (int) $transaction->id) {
                 return $assignment;
             }
@@ -178,7 +246,7 @@ class MonthlyCollectionsService
             ->orderBy('id')
             ->cursor()
             ->each(function (Transaction $transaction) use (&$total, &$filled): void {
-                $classification = $this->assignObligationForPaymentDate(Carbon::parse($transaction->transaction_date), $filled);
+                $classification = $this->classifyRowInMemberSequence($transaction, $filled);
                 if ($classification !== null && $classification['is_late']) {
                     $total += (float) $transaction->amount;
                 }
@@ -212,7 +280,7 @@ class MonthlyCollectionsService
             ->orderBy('id')
             ->cursor()
             ->each(function (Transaction $transaction) use (&$late, &$onTime, &$filled): void {
-                $classification = $this->assignObligationForPaymentDate(Carbon::parse($transaction->transaction_date), $filled);
+                $classification = $this->classifyRowInMemberSequence($transaction, $filled);
                 if ($transaction->type !== 'contribution') {
                     return;
                 }
@@ -250,7 +318,7 @@ class MonthlyCollectionsService
 
         $out = [];
         foreach ($members as $member) {
-            if (!$member instanceof Member) {
+            if (! $member instanceof Member) {
                 continue;
             }
             $expectedContribution = (float) ($member->allowed_allocation ?? Setting::getInt('default_allocation', 500));
@@ -323,7 +391,7 @@ class MonthlyCollectionsService
                 continue;
             }
             $parent = $dependant->parent;
-            if (!$parent) {
+            if (! $parent) {
                 continue;
             }
             $out[$dependant->id] = [
@@ -358,14 +426,15 @@ class MonthlyCollectionsService
             if ((float) $parent->bank_account_balance < $amount) {
                 $skippedInsufficient++;
                 $errors[] = "Parent {$parent->user?->name} (ID {$parent->id}) has insufficient balance for dependant {$dependant->user?->name}.";
+
                 continue;
             }
 
             try {
-                $parent->allocateToDependant($dependant, $amount, "Monthly allocation for {$year}-" . str_pad((string) $month, 2, '0', STR_PAD_LEFT), $dueDate);
+                $parent->allocateToDependant($dependant, $amount, "Monthly allocation for {$year}-".str_pad((string) $month, 2, '0', STR_PAD_LEFT), $dueDate);
                 $processed++;
             } catch (\Throwable $e) {
-                $errors[] = "Allocation failed for dependant {$dependant->id}: " . $e->getMessage();
+                $errors[] = "Allocation failed for dependant {$dependant->id}: ".$e->getMessage();
             }
         }
 
@@ -400,19 +469,35 @@ class MonthlyCollectionsService
                 if ((float) $member->bank_account_balance < $amount) {
                     $skippedInsufficient++;
                     $errors[] = "{$member->user?->name} (ID {$member->id}): insufficient balance for contribution (\${$amount}).";
+
                     continue;
                 }
                 try {
-                    $member->contribute($amount, "Monthly contribution for {$year}-" . str_pad((string) $month, 2, '0', STR_PAD_LEFT), $dueDate);
+                    $member->contribute(
+                        $amount,
+                        "Monthly contribution for {$year}-".str_pad((string) $month, 2, '0', STR_PAD_LEFT),
+                        $dueDate,
+                        [
+                            'obligation_month' => Carbon::create($year, $month, 1)->startOfMonth(),
+                            'period_due_date' => $dueDate,
+                            'is_late' => false,
+                        ],
+                    );
                     $contributions++;
                     $member->refresh();
                 } catch (\Throwable $e) {
-                    $errors[] = "Contribution failed for member {$member->id}: " . $e->getMessage();
+                    $errors[] = "Contribution failed for member {$member->id}: ".$e->getMessage();
                 }
             }
 
-            $activeLoans = $member->loansQuery()->where('status', 'active')->get();
+            $activeLoanIds = $member->loansQuery()->where('status', 'active')->pluck('id');
+            /** @var \Illuminate\Database\Eloquent\Collection<int, Loan> $activeLoans */
+            $activeLoans = Loan::query()->whereIn('id', $activeLoanIds)->get();
+
             foreach ($activeLoans as $loan) {
+                if (! $loan instanceof Loan) {
+                    continue;
+                }
                 $installment = min(
                     (float) ($loan->installment_amount ?? $loan->monthly_payment),
                     (float) $loan->outstanding_balance
@@ -432,6 +517,7 @@ class MonthlyCollectionsService
                 if ((float) $member->bank_account_balance < $installment) {
                     $skippedInsufficient++;
                     $errors[] = "{$member->user?->name} (ID {$member->id}): insufficient balance for loan {$loan->loan_id} repayment.";
+
                     continue;
                 }
                 try {
@@ -439,7 +525,7 @@ class MonthlyCollectionsService
                     $repayments++;
                     $member->refresh();
                 } catch (\Throwable $e) {
-                    $errors[] = "Loan repayment failed for member {$member->id}, loan {$loan->loan_id}: " . $e->getMessage();
+                    $errors[] = "Loan repayment failed for member {$member->id}, loan {$loan->loan_id}: ".$e->getMessage();
                 }
             }
         }
