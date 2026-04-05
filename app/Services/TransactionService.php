@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\MasterAccount;
+use Carbon\Carbon;
 use App\Models\Member;
 use App\Models\Transaction;
 use App\Models\User;
@@ -14,14 +15,20 @@ class TransactionService
      * Create and process a contribution transaction (Paired: Debit User Bank, Credit Master Fund)
      *
      * @param  array{obligation_month?: \DateTimeInterface|string|null, period_due_date?: \DateTimeInterface|string|null, is_late?: bool|null}|null  $collectionClassification
+     * @param  \DateTimeInterface|Carbon|string|null  $transactionDate  Defaults to now when null.
      */
-    public function createContribution(User $user, float $amount, ?string $notes = null, ?array $collectionClassification = null): Transaction
-    {
+    public function createContribution(
+        User $user,
+        float $amount,
+        ?string $notes = null,
+        ?array $collectionClassification = null,
+        \DateTimeInterface|Carbon|string|null $transactionDate = null,
+    ): Transaction {
         if (! $user->hasSufficientBankBalance($amount)) {
             throw new \Exception('Insufficient bank account balance');
         }
 
-        $paymentDate = now();
+        $paymentDate = $transactionDate === null ? now() : Carbon::parse($transactionDate);
         $collectionAttrs = app(MonthlyCollectionsService::class)
             ->transactionAttributesForCollectionClassification($collectionClassification, $paymentDate);
 

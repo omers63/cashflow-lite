@@ -35,6 +35,15 @@
                 <x-filament::icon icon="heroicon-o-arrow-down-tray" class="w-4 h-4 text-primary-500" />
             </a>
 
+            <a href="{{ $this->getQuickImportPipelineUrl() }}"
+               class="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm hover:border-primary-500 dark:hover:border-primary-500 transition-colors">
+                <div>
+                    <div class="font-medium">Quick import → member fund</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">One flow: external line, master, member bank, then contribution or loan repayment.</div>
+                </div>
+                <x-filament::icon icon="heroicon-o-bolt" class="w-4 h-4 text-primary-500" />
+            </a>
+
             <a href="{{ $this->getLoanIndexUrl() }}"
                class="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm hover:border-primary-500 dark:hover:border-primary-500 transition-colors">
                 <div>
