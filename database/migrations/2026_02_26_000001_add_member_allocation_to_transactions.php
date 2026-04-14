@@ -5,8 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     public function up(): void
     {
         $driver = Schema::getConnection()->getDriverName();
@@ -53,7 +52,7 @@ return new class extends Migration
         DB::statement("
             CREATE TABLE transactions_new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                transaction_id VARCHAR(255) NOT NULL UNIQUE,
+                transaction_id VARCHAR(255) NOT NULL,
                 transaction_date DATETIME NOT NULL,
                 \"type\" TEXT NOT NULL CHECK (\"type\" IN ({$typeList})),
                 from_account VARCHAR(255) NOT NULL,
@@ -133,7 +132,7 @@ return new class extends Migration
         DB::statement("
             CREATE TABLE transactions_old (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                transaction_id VARCHAR(255) NOT NULL UNIQUE,
+                transaction_id VARCHAR(255) NOT NULL,
                 transaction_date DATETIME NOT NULL,
                 \"type\" CHECK (\"type\" IN ('external_import','master_to_user_bank','contribution','loan_repayment','loan_disbursement','adjustment')) NOT NULL,
                 from_account VARCHAR(255) NOT NULL,

@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Fix SQLite CHECK constraint on transactions.type to allow allocation_to_dependant and allocation_from_parent.
      * Run this migration once; safe to run even if the constraint was already fixed.
@@ -34,7 +33,7 @@ return new class extends Migration
         DB::statement("
             CREATE TABLE transactions_new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                transaction_id VARCHAR(255) NOT NULL UNIQUE,
+                transaction_id VARCHAR(255) NOT NULL,
                 transaction_date DATETIME NOT NULL,
                 \"type\" TEXT NOT NULL CHECK (\"type\" IN ({$typeList})),
                 from_account VARCHAR(255) NOT NULL,
