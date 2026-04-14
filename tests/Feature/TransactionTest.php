@@ -23,7 +23,8 @@ class TransactionTest extends TestCase
 
     public function test_contribution_deducts_from_bank_and_adds_to_fund()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'bank_account_balance' => 1000,
             'fund_account_balance' => 0,
         ]);
@@ -37,7 +38,8 @@ class TransactionTest extends TestCase
 
     public function test_contribution_fails_with_insufficient_balance()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'bank_account_balance' => 50,
             'fund_account_balance' => 0,
         ]);
@@ -49,8 +51,9 @@ class TransactionTest extends TestCase
     public function test_distribution_transfers_from_master_to_user()
     {
         MasterAccount::where('account_type', 'master_bank')->first()->update(['balance' => 1000]);
-        
-        $user = User::factory()->create([
+
+        $user = User::factory()->create();
+        $user->member->update([
             'bank_account_balance' => 0,
         ]);
 

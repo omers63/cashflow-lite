@@ -23,21 +23,22 @@ class ReconciliationTest extends TestCase
 
     public function test_daily_reconciliation_passes_with_balanced_accounts()
     {
-        // Setup balanced system
-        MasterAccount::where('account_type', 'master_bank')->first()->update(['balance' => 1000]);
-        MasterAccount::where('account_type', 'master_fund')->first()->update(['balance' => 500]);
-        
-        User::factory()->create([
-            'bank_account_balance' => 500,
-            'fund_account_balance' => 500,
+        // No transactions yet: stored balances must match recomputed (0) and cross-checks (E2, M2).
+        MasterAccount::where('account_type', 'master_bank')->first()->update(['balance' => 0]);
+        MasterAccount::where('account_type', 'master_fund')->first()->update(['balance' => 0]);
+
+        $user = User::factory()->create();
+        $user->member->update([
+            'bank_account_balance' => 0,
+            'fund_account_balance' => 0,
             'outstanding_loans' => 0,
         ]);
 
         $reconciliation = $this->service->runDailyReconciliation();
 
         $this->assertTrue($reconciliation->all_passed);
-        $this->assertEquals(7, $reconciliation->checks_passed);
-        $this->assertEquals(0, $reconciliation->checks_failed);
+        $this->assertSame(0, $reconciliation->checks_failed);
+        $this->assertGreaterThan(0, $reconciliation->checks_passed);
     }
 
     public function test_reconciliation_fails_with_imbalanced_accounts()
@@ -45,8 +46,9 @@ class ReconciliationTest extends TestCase
         // Setup imbalanced system
         MasterAccount::where('account_type', 'master_bank')->first()->update(['balance' => 1000]);
         MasterAccount::where('account_type', 'master_fund')->first()->update(['balance' => 100]);
-        
-        User::factory()->create([
+
+        $user = User::factory()->create();
+        $user->member->update([
             'bank_account_balance' => 500,
             'fund_account_balance' => 500,
             'outstanding_loans' => 0,

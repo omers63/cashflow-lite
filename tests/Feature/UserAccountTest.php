@@ -12,7 +12,8 @@ class UserAccountTest extends TestCase
 
     public function test_available_to_borrow_calculation()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'fund_account_balance' => 5000,
             'outstanding_loans' => 2000,
         ]);
@@ -22,7 +23,8 @@ class UserAccountTest extends TestCase
 
     public function test_available_to_borrow_never_negative()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'fund_account_balance' => 1000,
             'outstanding_loans' => 2000,
         ]);
@@ -32,7 +34,8 @@ class UserAccountTest extends TestCase
 
     public function test_can_borrow_check()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'fund_account_balance' => 5000,
             'outstanding_loans' => 0,
         ]);

@@ -17,9 +17,6 @@ class UserSeeder extends Seeder
             'email' => 'admin@cashflow.com',
             'password' => Hash::make('password'),
             'status' => 'active',
-            'bank_account_balance' => 0,
-            'fund_account_balance' => 0,
-            'outstanding_loans' => 0,
         ]);
     }
 }

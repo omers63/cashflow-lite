@@ -23,7 +23,8 @@ class LoanTest extends TestCase
 
     public function test_loan_creation_with_valid_parameters()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'fund_account_balance' => 5000,
             'outstanding_loans' => 0,
         ]);
@@ -39,13 +40,15 @@ class LoanTest extends TestCase
     {
         MasterAccount::where('account_type', 'master_fund')->first()->update(['balance' => 5000]);
 
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'fund_account_balance' => 5000,
             'outstanding_loans' => 0,
             'bank_account_balance' => 0,
         ]);
 
         $loan = $this->service->createLoan($user, 1000, 10, 12);
+        $this->actingAs($user);
         $transaction = $this->service->approveLoan($loan);
 
         $this->assertEquals('active', $loan->fresh()->status);
@@ -55,7 +58,8 @@ class LoanTest extends TestCase
 
     public function test_loan_payment_reduces_balance()
     {
-        $user = User::factory()->create([
+        $user = User::factory()->create();
+        $user->member->update([
             'bank_account_balance' => 500,
             'fund_account_balance' => 5000,
             'outstanding_loans' => 1000,

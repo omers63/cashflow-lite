@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\Member;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -11,6 +13,29 @@ use Illuminate\Support\Str;
  */
 class UserFactory extends Factory
 {
+    /**
+     * Financial balances live on {@see Member}; db:seed runs in Model::unguarded() so
+     * balance keys must not be in the factory definition.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (User $user) {
+            if ($user->member) {
+                return;
+            }
+
+            Member::create([
+                'user_id' => $user->id,
+                'membership_date' => now()->subYears(2),
+                'bank_account_balance' => 0,
+                'fund_account_balance' => 0,
+                'outstanding_loans' => 0,
+            ]);
+
+            $user->unsetRelation('member');
+        });
+    }
+
     /**
      * The current password being used by the factory.
      */
@@ -31,9 +56,6 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'phone' => fake()->phoneNumber(),
             'status' => 'active',
-            'bank_account_balance' => fake()->randomFloat(2, 0, 10000),
-            'fund_account_balance' => fake()->randomFloat(2, 0, 5000),
-            'outstanding_loans' => 0,
             'remember_token' => Str::random(10),
         ];
     }
