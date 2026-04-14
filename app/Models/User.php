@@ -14,6 +14,15 @@ class User extends Authenticatable implements FilamentUser
 {
     use HasFactory, Notifiable, SoftDeletes;
 
+    protected static function booted(): void
+    {
+        static::creating(function (User $user) {
+            if (blank($user->user_code)) {
+                $user->user_code = static::generateUserCode();
+            }
+        });
+    }
+
     protected $fillable = [
         'user_code',
         'name',
